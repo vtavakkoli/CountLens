@@ -3,9 +3,9 @@
 CountLens is an advanced Android application designed to detect and count similar objects in images using computer vision. It is particularly effective for counting items like bottles, pills, fruits, or icons by using a single user-defined reference.
 
 <p align="center">
-  <img src="screenshots/Screenshot_1.png" width="400" alt="App Screenshot 1">
-  <img src="screenshots/Screenshot_2.png" width="400" alt="App Screenshot 2">
-  <img src="screenshots/Screenshot_3.png" width="400" alt="App Screenshot 3">
+  <img src="screenshots/Screenshot_1.png" width="200" alt="App Screenshot 1">
+  <img src="screenshots/Screenshot_2.png" width="200" alt="App Screenshot 2">
+  <img src="screenshots/Screenshot_3.png" width="200" alt="App Screenshot 3">
 </p>
 
 

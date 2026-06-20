@@ -20,9 +20,16 @@ public class SelectionOverlayView extends View {
     private Paint handlePaint;
     private Paint guidePaint;
     private RectF selectionRect;
+    private float rotationAngle = 0f; // in degrees
     private float startX, startY;
+    private float lastTouchX, lastTouchY;
     private boolean isDrawing = false;
+    private boolean isRotating = false;
+    private boolean isMoving = false;
     private String selectionShape = SettingsManager.SHAPE_RECTANGLE;
+
+    private static final float ROTATION_HANDLE_OFFSET = 60f;
+    private static final float TOUCH_SLOP = 40f;
 
     public SelectionOverlayView(Context context) {
         super(context);
@@ -71,6 +78,9 @@ public class SelectionOverlayView extends View {
             return;
         }
 
+        canvas.save();
+        canvas.rotate(rotationAngle, selectionRect.centerX(), selectionRect.centerY());
+
         if (SettingsManager.SHAPE_CIRCLE.equals(selectionShape)) {
             float centerX = selectionRect.centerX();
             float centerY = selectionRect.centerY();
@@ -78,31 +88,41 @@ public class SelectionOverlayView extends View {
             canvas.drawCircle(centerX, centerY, radius, fillPaint);
             canvas.drawCircle(centerX, centerY, radius, borderPaint);
         } else {
-            canvas.drawRoundRect(selectionRect, 12f, 12f, fillPaint);
-            canvas.drawRoundRect(selectionRect, 12f, 12f, borderPaint);
+            canvas.drawRoundRect(selectionRect, 8f, 8f, fillPaint);
+            canvas.drawRoundRect(selectionRect, 8f, 8f, borderPaint);
         }
 
         drawGuides(canvas);
         drawHandles(canvas);
+        
+        canvas.restore();
     }
 
     private void drawGuides(Canvas canvas) {
+        // Vertical and horizontal center lines
         canvas.drawLine(selectionRect.centerX(), selectionRect.top, selectionRect.centerX(), selectionRect.bottom, guidePaint);
         canvas.drawLine(selectionRect.left, selectionRect.centerY(), selectionRect.right, selectionRect.centerY(), guidePaint);
+        
+        // Rotation handle stem
+        canvas.drawLine(selectionRect.centerX(), selectionRect.top, selectionRect.centerX(), selectionRect.top - ROTATION_HANDLE_OFFSET, borderPaint);
     }
 
     private void drawHandles(Canvas canvas) {
-        float radius = 7f;
+        float radius = 10f;
+        // Corner handles
         canvas.drawCircle(selectionRect.left, selectionRect.top, radius, handlePaint);
         canvas.drawCircle(selectionRect.right, selectionRect.top, radius, handlePaint);
         canvas.drawCircle(selectionRect.left, selectionRect.bottom, radius, handlePaint);
         canvas.drawCircle(selectionRect.right, selectionRect.bottom, radius, handlePaint);
+        
+        // Rotation handle
+        canvas.drawCircle(selectionRect.centerX(), selectionRect.top - ROTATION_HANDLE_OFFSET, radius + 4f, borderPaint);
+        canvas.drawCircle(selectionRect.centerX(), selectionRect.top - ROTATION_HANDLE_OFFSET, radius, handlePaint);
     }
 
     @Override
     public boolean performClick() {
-        super.performClick();
-        return true;
+        return super.performClick();
     }
 
     @Override
@@ -111,30 +131,83 @@ public class SelectionOverlayView extends View {
             return false;
         }
 
-        float x = clamp(event.getX(), 0, getWidth());
-        float y = clamp(event.getY(), 0, getHeight());
+        float x = event.getX();
+        float y = event.getY();
 
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
-                startX = x;
-                startY = y;
-                selectionRect.set(startX, startY, startX, startY);
-                isDrawing = true;
+                if (isNearRotationHandle(x, y)) {
+                    isRotating = true;
+                } else if (selectionRect.contains(x, y)) {
+                    isMoving = true;
+                    lastTouchX = x;
+                    lastTouchY = y;
+                } else {
+                    startX = x;
+                    startY = y;
+                    selectionRect.set(startX, startY, startX, startY);
+                    rotationAngle = 0f;
+                    isDrawing = true;
+                }
                 invalidate();
                 return true;
+
             case MotionEvent.ACTION_MOVE:
-                updateRect(x, y);
+                if (isRotating) {
+                    rotationAngle = calculateRotationAngle(x, y);
+                } else if (isMoving) {
+                    float dx = x - lastTouchX;
+                    float dy = y - lastTouchY;
+                    selectionRect.offset(dx, dy);
+                    lastTouchX = x;
+                    lastTouchY = y;
+                } else if (isDrawing) {
+                    updateRect(x, y);
+                }
                 invalidate();
                 return true;
+
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
-                updateRect(x, y);
+                if (!isMoving && !isRotating && !isDrawing) {
+                    performClick();
+                }
                 isDrawing = false;
-                performClick();
+                isRotating = false;
+                isMoving = false;
                 invalidate();
                 return true;
         }
         return super.onTouchEvent(event);
+    }
+
+    private boolean isNearRotationHandle(float x, float y) {
+        // We need to check the handle position IN VIEW SPACE (rotated)
+        float centerX = selectionRect.centerX();
+        float centerY = selectionRect.centerY();
+        
+        // The handle relative to center BEFORE rotation
+        float hx = 0;
+        float hy = (selectionRect.top - centerY) - ROTATION_HANDLE_OFFSET;
+        
+        // Rotate the handle point
+        double rad = Math.toRadians(rotationAngle);
+        float rotatedHx = (float) (hx * Math.cos(rad) - hy * Math.sin(rad)) + centerX;
+        float rotatedHy = (float) (hx * Math.sin(rad) + hy * Math.cos(rad)) + centerY;
+        
+        float dist = (float) Math.sqrt(Math.pow(x - rotatedHx, 2) + Math.pow(y - rotatedHy, 2));
+        return dist < TOUCH_SLOP + 20f;
+    }
+
+    private float calculateRotationAngle(float x, float y) {
+        float centerX = selectionRect.centerX();
+        float centerY = selectionRect.centerY();
+        double angleRad = Math.atan2(x - centerX, centerY - y);
+        return (float) Math.toDegrees(angleRad);
+    }
+
+    public float getRotationAngle() {
+        return rotationAngle;
     }
 
     private void updateRect(float x, float y) {
@@ -150,16 +223,13 @@ public class SelectionOverlayView extends View {
         return isDrawing || (selectionRect.width() >= MIN_SELECTION_SIZE && selectionRect.height() >= MIN_SELECTION_SIZE);
     }
 
-    private float clamp(float value, float min, float max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
     public RectF getSelectionRect() {
         return new RectF(selectionRect);
     }
 
     public void reset() {
         selectionRect.set(0, 0, 0, 0);
+        rotationAngle = 0f;
         invalidate();
     }
 }

@@ -174,6 +174,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
         new Thread(() -> OpenCVDetectionHelper.detectSimilarObjects(
                 sourceBitmap,
                 bitmapSelection,
+                selectionOverlay.getRotationAngle(),
                 settingsManager.getThreshold(),
                 settingsManager.getNmsThreshold(),
                 (detectedBitmap, count) -> runOnUiThread(() -> {

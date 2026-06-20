@@ -39,8 +39,8 @@ public class OpenCVDetectionHelper {
     // Robust object-level NMS constants. This combines IoU, containment, center distance,
     // group-box removal, and foreground-component checks. It is much safer than plain IoU-NMS.
     private static final double GROUP_CONTAINMENT_THRESHOLD = 0.58;
-    private static final double CONTAINMENT_NMS_THRESHOLD = 0.72;
-    private static final double CENTER_DUPLICATE_DISTANCE_RATIO = 0.42;
+    private static final double CONTAINMENT_NMS_THRESHOLD = 0.62;
+    private static final double CENTER_DUPLICATE_DISTANCE_RATIO = 0.55;
     private static final double SIZE_RANKING_WEIGHT = 0.11;
     private static final double FOREGROUND_COMPONENT_SPLIT_RATIO = 0.09;
     private static final double LARGE_BOX_COMPONENT_RATIO = 1.45;
@@ -107,6 +107,7 @@ public class OpenCVDetectionHelper {
     public static void detectSimilarObjects(
             Bitmap sourceBitmap,
             RectF selectionRect,
+            float initialRotation,
             double threshold,
             double nmsThreshold,
             DetectionCallback callback
@@ -134,6 +135,16 @@ public class OpenCVDetectionHelper {
             }
 
             grayTemplate = new Mat(grayFull, objectRoi).clone();
+            
+            // If the user rotated the selection, they are likely indicating the principal
+            // axis of the object. We rotate the template back to neutral (0 deg) based
+            // on the selection rotation so that addRotatedTemplateCandidates starts
+            // from the most likely orientation.
+            if (Math.abs(initialRotation) > 0.5f) {
+                Mat rotatedTemplate = rotateMat(grayTemplate, -initialRotation, estimateBorderMean(grayTemplate));
+                grayTemplate.release();
+                grayTemplate = rotatedTemplate;
+            }
 
             List<DetectionCandidate> candidates = new ArrayList<>();
 
@@ -322,8 +333,11 @@ public class OpenCVDetectionHelper {
             }
 
             Mat kernelOpen = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(3, 3));
-            Mat kernelClose = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+            int closeSize = Math.max(7, Math.min(25, (Math.min(selectionRoi.width, selectionRoi.height) / 8) | 1));
+            Mat kernelClose = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(closeSize, closeSize));
+
             Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, kernelOpen);
+            Imgproc.dilate(mask, mask, kernelOpen); // Extra dilation to bridge specular highlights
             Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_CLOSE, kernelClose);
             kernelOpen.release();
             kernelClose.release();
@@ -372,7 +386,7 @@ public class OpenCVDetectionHelper {
             // histogram is used instead of simple mean HSV because red wraps around 0/180.
             if (dominantColor.valid && saturation >= 38.0 && value >= 30.0) {
                 colorMask = createHueMask(hsvFull, hue, saturation, value);
-                int closeSize = Math.max(5, Math.min(11, ((Math.min(selectionRoi.width, selectionRoi.height) / 18) | 1)));
+                int closeSize = Math.max(7, Math.min(15, ((Math.min(selectionRoi.width, selectionRoi.height) / 12) | 1)));
                 Mat kernelCloseColor = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(closeSize, closeSize));
                 Mat kernelOpenColor = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
                 Imgproc.morphologyEx(colorMask, colorMask, Imgproc.MORPH_OPEN, kernelOpenColor);
@@ -396,7 +410,9 @@ public class OpenCVDetectionHelper {
             }
 
             Mat kernelOpen = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(3, 3));
-            Mat kernelClose = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+            int closeSize = Math.max(9, Math.min(31, (Math.min(selectionRoi.width, selectionRoi.height) / 7) | 1));
+            Mat kernelClose = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(closeSize, closeSize));
+
             Imgproc.morphologyEx(finalMask, finalMask, Imgproc.MORPH_OPEN, kernelOpen);
             Imgproc.morphologyEx(finalMask, finalMask, Imgproc.MORPH_CLOSE, kernelClose);
             kernelOpen.release();

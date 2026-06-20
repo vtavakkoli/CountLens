@@ -93,6 +93,7 @@
         android:id="@+id/control_panel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginBottom="32dp"
         app:cardBackgroundColor="@color/countlens_surface"
         app:cardCornerRadius="28dp"
         app:cardElevation="8dp"
@@ -130,12 +131,13 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:background="@drawable/bg_pill"
+                    android:backgroundTint="#2563EB"
                     android:paddingStart="12dp"
                     android:paddingTop="7dp"
                     android:paddingEnd="12dp"
                     android:paddingBottom="7dp"
                     android:text="@string/result_count_placeholder"
-                    android:textColor="@color/countlens_primary_dark"
+                    android:textColor="@android:color/white"
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:visibility="gone" />
@@ -178,9 +180,11 @@
                 android:layout_marginTop="16dp"
                 android:text="@string/btn_detect"
                 android:textAllCaps="false"
+                android:textColor="@android:color/white"
                 android:textSize="16sp"
                 app:cornerRadius="18dp"
-                app:icon="@drawable/ic_lens_outline" />
+                app:icon="@drawable/ic_lens_outline"
+                app:iconTint="@android:color/white" />
 
             <LinearLayout
                 android:layout_width="match_parent"

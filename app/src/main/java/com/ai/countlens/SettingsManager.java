@@ -12,8 +12,8 @@ public class SettingsManager {
     public static final String SHAPE_RECTANGLE = "rectangle";
     public static final String SHAPE_CIRCLE = "circle";
 
-    private static final float DEFAULT_THRESHOLD = 0.82f;
-    private static final float DEFAULT_NMS_THRESHOLD = 0.30f;
+    private static final float DEFAULT_THRESHOLD = 0.68f;
+    private static final float DEFAULT_NMS_THRESHOLD = 0.28f;
 
     private final SharedPreferences prefs;
 

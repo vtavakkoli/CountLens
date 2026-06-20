@@ -24,9 +24,9 @@
     <string name="btn_back">Back</string>
     <string name="settings_title">Detection Settings</string>
     <string name="label_threshold">Matching threshold: %1$.2f</string>
-    <string name="label_threshold_hint">Higher values are stricter. Lower values find more objects but may create false matches.</string>
+    <string name="label_threshold_hint">Lower values help with small, rotated, and mirrored objects. CountLens now uses foreground-shape validation to reduce false matches.</string>
     <string name="label_nms_threshold">NMS overlap: %1$.2f</string>
-    <string name="label_nms_hint">Higher values keep more overlapping boxes. Lower values remove duplicates more aggressively.</string>
+    <string name="label_nms_hint">Robust NMS removes duplicate boxes, splits large group boxes into single objects, and suppresses boxes inside one large object. Use 0.25–0.35 for most images.</string>
     <string name="label_selection_shape">Selection shape</string>
     <string name="shape_rectangle">Rectangle</string>
     <string name="shape_circle">Circle</string>
@@ -38,6 +38,6 @@
     <string name="error_no_image">No image selected</string>
     <string name="error_detection_failed">Detection failed. Try a clearer object selection.</string>
     <string name="settings_detection_card">Matching sensitivity</string>
-    <string name="settings_nms_card">Duplicate box removal</string>
+    <string name="settings_nms_card">Object-aware duplicate removal</string>
     <string name="settings_shape_card">Object selection tool</string>
 </resources>

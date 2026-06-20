@@ -7,7 +7,7 @@ appcompat = "1.7.1"
 material = "1.14.0"
 activityKtx = "1.13.0"
 constraintlayout = "2.2.1"
-opencv = "4.10.0"
+opencv = "5.0.0"
 
 [libraries]
 opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }

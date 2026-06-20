@@ -1,8 +1,16 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
     <style name="Base.Theme.CountLens" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <item name="colorPrimary">@color/countlens_primary</item>
+        <item name="colorPrimaryContainer">#DBEAFE</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/countlens_secondary</item>
+        <item name="colorSecondaryContainer">#CFFAFE</item>
+        <item name="colorTertiary">@color/countlens_accent</item>
+        <item name="android:colorAccent">@color/countlens_primary</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@color/countlens_background</item>
+        <item name="android:navigationBarColor">@color/countlens_background</item>
+        <item name="android:fontFamily">sans</item>
     </style>
 
     <style name="Theme.CountLens" parent="Base.Theme.CountLens" />

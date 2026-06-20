@@ -14,7 +14,9 @@ public class SettingsActivity extends AppCompatActivity {
 
     private SettingsManager settingsManager;
     private TextView tvThresholdLabel;
+    private TextView tvNmsLabel;
     private Slider sliderThreshold;
+    private Slider sliderNms;
     private RadioGroup rgShape;
     private RadioButton rbRectangle, rbCircle;
     private Button btnBack;
@@ -27,16 +29,21 @@ public class SettingsActivity extends AppCompatActivity {
         settingsManager = new SettingsManager(this);
 
         tvThresholdLabel = findViewById(R.id.tv_threshold_label);
+        tvNmsLabel = findViewById(R.id.tv_nms_label);
         sliderThreshold = findViewById(R.id.slider_threshold);
+        sliderNms = findViewById(R.id.slider_nms);
         rgShape = findViewById(R.id.rg_shape);
         rbRectangle = findViewById(R.id.rb_rectangle);
         rbCircle = findViewById(R.id.rb_circle);
         btnBack = findViewById(R.id.btn_back);
 
-        // Load current settings
-        float currentThreshold = settingsManager.getThreshold();
+        float currentThreshold = clamp(settingsManager.getThreshold(), sliderThreshold.getValueFrom(), sliderThreshold.getValueTo());
         sliderThreshold.setValue(currentThreshold);
         updateThresholdLabel(currentThreshold);
+
+        float currentNms = clamp(settingsManager.getNmsThreshold(), sliderNms.getValueFrom(), sliderNms.getValueTo());
+        sliderNms.setValue(currentNms);
+        updateNmsLabel(currentNms);
 
         String currentShape = settingsManager.getSelectionShape();
         if (SettingsManager.SHAPE_CIRCLE.equals(currentShape)) {
@@ -45,10 +52,14 @@ public class SettingsActivity extends AppCompatActivity {
             rbRectangle.setChecked(true);
         }
 
-        // Listeners
         sliderThreshold.addOnChangeListener((slider, value, fromUser) -> {
             settingsManager.setThreshold(value);
             updateThresholdLabel(value);
+        });
+
+        sliderNms.addOnChangeListener((slider, value, fromUser) -> {
+            settingsManager.setNmsThreshold(value);
+            updateNmsLabel(value);
         });
 
         rgShape.setOnCheckedChangeListener((group, checkedId) -> {
@@ -64,5 +75,13 @@ public class SettingsActivity extends AppCompatActivity {
 
     private void updateThresholdLabel(float value) {
         tvThresholdLabel.setText(getString(R.string.label_threshold, value));
+    }
+
+    private void updateNmsLabel(float value) {
+        tvNmsLabel.setText(getString(R.string.label_nms_threshold, value));
+    }
+
+    private float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

@@ -15,8 +15,10 @@ public class SettingsActivity extends AppCompatActivity {
     private SettingsManager settingsManager;
     private TextView tvThresholdLabel;
     private TextView tvNmsLabel;
+    private TextView tvImageSizeLabel;
     private Slider sliderThreshold;
     private Slider sliderNms;
+    private Slider sliderImageSize;
     private RadioGroup rgShape;
     private RadioButton rbRectangle, rbCircle;
     private Button btnBack;
@@ -30,8 +32,10 @@ public class SettingsActivity extends AppCompatActivity {
 
         tvThresholdLabel = findViewById(R.id.tv_threshold_label);
         tvNmsLabel = findViewById(R.id.tv_nms_label);
+        tvImageSizeLabel = findViewById(R.id.tv_image_size_label);
         sliderThreshold = findViewById(R.id.slider_threshold);
         sliderNms = findViewById(R.id.slider_nms);
+        sliderImageSize = findViewById(R.id.slider_image_size);
         rgShape = findViewById(R.id.rg_shape);
         rbRectangle = findViewById(R.id.rb_rectangle);
         rbCircle = findViewById(R.id.rb_circle);
@@ -44,6 +48,10 @@ public class SettingsActivity extends AppCompatActivity {
         float currentNms = clamp(settingsManager.getNmsThreshold(), sliderNms.getValueFrom(), sliderNms.getValueTo());
         sliderNms.setValue(currentNms);
         updateNmsLabel(currentNms);
+
+        float currentImageSize = clamp(settingsManager.getMaxImageSize(), sliderImageSize.getValueFrom(), sliderImageSize.getValueTo());
+        sliderImageSize.setValue(currentImageSize);
+        updateImageSizeLabel(Math.round(currentImageSize));
 
         String currentShape = settingsManager.getSelectionShape();
         if (SettingsManager.SHAPE_CIRCLE.equals(currentShape)) {
@@ -60,6 +68,12 @@ public class SettingsActivity extends AppCompatActivity {
         sliderNms.addOnChangeListener((slider, value, fromUser) -> {
             settingsManager.setNmsThreshold(value);
             updateNmsLabel(value);
+        });
+
+        sliderImageSize.addOnChangeListener((slider, value, fromUser) -> {
+            int rounded = Math.round(value / 64f) * 64;
+            settingsManager.setMaxImageSize(rounded);
+            updateImageSizeLabel(rounded);
         });
 
         rgShape.setOnCheckedChangeListener((group, checkedId) -> {
@@ -79,6 +93,10 @@ public class SettingsActivity extends AppCompatActivity {
 
     private void updateNmsLabel(float value) {
         tvNmsLabel.setText(getString(R.string.label_nms_threshold, value));
+    }
+
+    private void updateImageSizeLabel(int value) {
+        tvImageSizeLabel.setText(getString(R.string.label_image_size, value));
     }
 
     private float clamp(float value, float min, float max) {

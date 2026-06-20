@@ -9,7 +9,6 @@ import android.provider.MediaStore;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
-import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -22,15 +21,16 @@ import java.io.IOException;
 
 public class ImageDetectionActivity extends AppCompatActivity {
 
-    private ImageView ivPhoto;
+    private ZoomableImageView ivPhoto;
     private SelectionOverlayView selectionOverlay;
     private TextView tvStatus, tvResultCount;
-    private Button btnDetect, btnReset, btnSave;
+    private Button btnDetect, btnReset, btnSave, btnZoomMode, btnFitImage;
     private ImageButton btnBack;
     private ProgressBar progressDetection;
     private Bitmap sourceBitmap;
     private Bitmap resultBitmap;
     private SettingsManager settingsManager;
+    private boolean zoomMode = false;
 
     private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
@@ -74,11 +74,14 @@ public class ImageDetectionActivity extends AppCompatActivity {
         btnDetect = findViewById(R.id.btn_detect);
         btnReset = findViewById(R.id.btn_reset);
         btnSave = findViewById(R.id.btn_save);
+        btnZoomMode = findViewById(R.id.btn_zoom_mode);
+        btnFitImage = findViewById(R.id.btn_fit_image);
         btnBack = findViewById(R.id.btn_back);
         progressDetection = findViewById(R.id.progress_detection);
 
         selectionOverlay.setSelectionShape(settingsManager.getSelectionShape());
         tvStatus.setText(R.string.loading_image);
+        setZoomMode(false);
 
         boolean fromCamera = getIntent().getBooleanExtra("from_camera", false);
         if (fromCamera) {
@@ -91,6 +94,8 @@ public class ImageDetectionActivity extends AppCompatActivity {
         btnDetect.setOnClickListener(v -> performDetection());
         btnReset.setOnClickListener(v -> resetSelection());
         btnSave.setOnClickListener(v -> saveResult());
+        btnZoomMode.setOnClickListener(v -> setZoomMode(!zoomMode));
+        btnFitImage.setOnClickListener(v -> ivPhoto.resetZoom());
     }
 
     private void launchCamera() {
@@ -113,18 +118,43 @@ public class ImageDetectionActivity extends AppCompatActivity {
     }
 
     private void setSourceBitmap(Bitmap bitmap) {
-        sourceBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true);
+        // Large phone photos can be 3000–6000 px and make multi-scale CV very slow.
+        // CountLens now keeps an analysis-sized bitmap with the same aspect ratio.
+        // This makes detection much faster and still accurate enough for bounding boxes.
+        sourceBitmap = resizeBitmapForAnalysis(bitmap, settingsManager.getMaxImageSize());
         resultBitmap = null;
         ivPhoto.setImageBitmap(sourceBitmap);
+        ivPhoto.resetZoom();
         selectionOverlay.reset();
         tvResultCount.setVisibility(View.GONE);
         tvStatus.setText(R.string.status_ready);
+        setZoomMode(false);
+    }
+
+    private Bitmap resizeBitmapForAnalysis(Bitmap bitmap, int maxSide) {
+        if (bitmap == null) return null;
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        int longest = Math.max(width, height);
+        if (longest <= maxSide) {
+            return bitmap.copy(Bitmap.Config.ARGB_8888, true);
+        }
+
+        float scale = maxSide / (float) longest;
+        int newWidth = Math.max(1, Math.round(width * scale));
+        int newHeight = Math.max(1, Math.round(height * scale));
+        Bitmap resized = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true);
+        return resized.copy(Bitmap.Config.ARGB_8888, true);
     }
 
     private void performDetection() {
         if (sourceBitmap == null) {
             Toast.makeText(this, R.string.error_no_image, Toast.LENGTH_SHORT).show();
             return;
+        }
+
+        if (zoomMode) {
+            setZoomMode(false);
         }
 
         RectF selection = selectionOverlay.getSelectionRect();
@@ -162,62 +192,38 @@ public class ImageDetectionActivity extends AppCompatActivity {
         btnDetect.setEnabled(!detecting);
         btnReset.setEnabled(!detecting);
         btnSave.setEnabled(!detecting);
-        selectionOverlay.setEnabled(!detecting);
+        btnZoomMode.setEnabled(!detecting);
+        btnFitImage.setEnabled(!detecting);
+        selectionOverlay.setEnabled(!detecting && !zoomMode);
+        ivPhoto.setZoomEnabled(!detecting && zoomMode);
         if (detecting) {
-            tvStatus.setText(R.string.status_detecting);
+            tvStatus.setText(R.string.status_detecting_fast);
         }
+    }
+
+    private void setZoomMode(boolean enabled) {
+        zoomMode = enabled;
+        ivPhoto.setZoomEnabled(enabled);
+        selectionOverlay.setEnabled(!enabled);
+        selectionOverlay.setVisibility(enabled ? View.GONE : View.VISIBLE);
+        btnZoomMode.setText(enabled ? R.string.btn_select_mode : R.string.btn_zoom_mode);
+        tvStatus.setText(enabled ? R.string.status_zoom_mode : R.string.status_select_object);
     }
 
     private RectF convertToBitmapCoordinates(RectF viewRect) {
-        float viewWidth = ivPhoto.getWidth();
-        float viewHeight = ivPhoto.getHeight();
-        float bitmapWidth = sourceBitmap.getWidth();
-        float bitmapHeight = sourceBitmap.getHeight();
-
-        if (viewWidth <= 0 || viewHeight <= 0 || bitmapWidth <= 0 || bitmapHeight <= 0) {
-            return new RectF();
-        }
-
-        float viewRatio = viewWidth / viewHeight;
-        float bitmapRatio = bitmapWidth / bitmapHeight;
-
-        float scale;
-        float xOffset = 0f;
-        float yOffset = 0f;
-
-        if (bitmapRatio > viewRatio) {
-            scale = viewWidth / bitmapWidth;
-            yOffset = (viewHeight - bitmapHeight * scale) / 2f;
-        } else {
-            scale = viewHeight / bitmapHeight;
-            xOffset = (viewWidth - bitmapWidth * scale) / 2f;
-        }
-
-        float left = (viewRect.left - xOffset) / scale;
-        float top = (viewRect.top - yOffset) / scale;
-        float right = (viewRect.right - xOffset) / scale;
-        float bottom = (viewRect.bottom - yOffset) / scale;
-
-        left = clamp(left, 0, bitmapWidth - 1);
-        top = clamp(top, 0, bitmapHeight - 1);
-        right = clamp(right, left + 1, bitmapWidth);
-        bottom = clamp(bottom, top + 1, bitmapHeight);
-
-        return new RectF(left, top, right, bottom);
-    }
-
-    private float clamp(float value, float min, float max) {
-        return Math.max(min, Math.min(max, value));
+        return ivPhoto.viewRectToBitmapRect(viewRect);
     }
 
     private void resetSelection() {
         selectionOverlay.reset();
+        ivPhoto.resetZoom();
         if (sourceBitmap != null) {
             ivPhoto.setImageBitmap(sourceBitmap);
         }
         resultBitmap = null;
         tvResultCount.setVisibility(View.GONE);
         tvStatus.setText(R.string.status_select_object);
+        setZoomMode(false);
     }
 
     private void saveResult() {

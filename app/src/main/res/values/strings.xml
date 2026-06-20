@@ -12,21 +12,26 @@
     <string name="footer_text">Dr. Vahid Tavakkoli – 2026</string>
     <string name="status_select_object">Draw a rectangle or circle around one object</string>
     <string name="status_detecting">Detecting similar objects…</string>
+    <string name="status_detecting_fast">Detecting on optimized image…</string>
+    <string name="status_zoom_mode">Zoom mode: pinch to zoom and drag to pan. Tap Select Mode when ready.</string>
     <string name="status_detection_complete">Detection complete</string>
     <string name="status_ready">Image loaded. Select one object to begin.</string>
     <string name="result_count_format">Detected objects: %1$d</string>
     <string name="btn_detect">Detect Similar</string>
     <string name="btn_reset">Reset</string>
     <string name="btn_save">Save Result</string>
+    <string name="btn_zoom_mode">Zoom / Pan</string>
+    <string name="btn_select_mode">Select Mode</string>
+    <string name="btn_fit_image">Fit Image</string>
     <string name="content_desc_image">Image preview</string>
     <string name="about_desc">CountLens is an Android computer vision application for selecting one object in a photo, detecting all similar objects, drawing bounding boxes, and counting them automatically.</string>
     <string name="developed_by">Developed by</string>
     <string name="btn_back">Back</string>
     <string name="settings_title">Detection Settings</string>
     <string name="label_threshold">Matching threshold: %1$.2f</string>
-    <string name="label_threshold_hint">Lower values help with small, rotated, and mirrored objects. CountLens now uses foreground-shape validation to reduce false matches.</string>
+    <string name="label_threshold_hint">Lower values help with small, rotated, mirrored, or partly visible objects. Color-first validation reduces false matches.</string>
     <string name="label_nms_threshold">NMS overlap: %1$.2f</string>
-    <string name="label_nms_hint">Robust NMS removes duplicate boxes, splits large group boxes into single objects, and suppresses boxes inside one large object. Use 0.25–0.35 for most images.</string>
+    <string name="label_nms_hint">Robust NMS removes duplicate boxes and large group boxes. Use 0.25–0.35 for most images.</string>
     <string name="label_selection_shape">Selection shape</string>
     <string name="shape_rectangle">Rectangle</string>
     <string name="shape_circle">Circle</string>
@@ -40,4 +45,7 @@
     <string name="settings_detection_card">Matching sensitivity</string>
     <string name="settings_nms_card">Object-aware duplicate removal</string>
     <string name="settings_shape_card">Object selection tool</string>
+    <string name="settings_speed_card">Speed and image size</string>
+    <string name="label_image_size">Analysis image size: %1$d px</string>
+    <string name="label_image_size_hint">Large photos are resized before detection. 1280 px is fast and usually accurate; increase only if tiny details are missed.</string>
 </resources>

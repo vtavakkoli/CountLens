@@ -23,7 +23,7 @@ import java.util.List;
 public class OpenCVDetectionHelper {
 
     private static final int MIN_TEMPLATE_SIZE = 10;
-    private static final int MAX_MATCHES_PER_VARIANT = 18;
+    private static final int MAX_MATCHES_PER_VARIANT = 8;
     private static final double SHAPE_MATCH_THRESHOLD = 0.42;
     private static final double SEGMENTATION_SHAPE_THRESHOLD = 0.55;
     private static final double MIN_CONTOUR_AREA = 24.0;
@@ -45,16 +45,13 @@ public class OpenCVDetectionHelper {
     private static final double FOREGROUND_COMPONENT_SPLIT_RATIO = 0.09;
     private static final double LARGE_BOX_COMPONENT_RATIO = 1.45;
 
+    // Fast fallback only. Color/foreground segmentation is used first for photos.
     private static final double[] TEMPLATE_SCALES = {
-            0.30, 0.38, 0.46, 0.55, 0.65, 0.75, 0.85, 1.00,
-            1.15, 1.30, 1.50, 1.75, 2.05, 2.40
+            0.45, 0.60, 0.75, 0.90, 1.00, 1.15, 1.35, 1.60
     };
 
     private static final double[] ROTATION_ANGLES = {
-            0, 10, 20, 30, 45, 60, 75,
-            90, 105, 120, 135, 150, 160, 170,
-            180, 190, 200, 210, 225, 240, 255,
-            270, 285, 300, 315, 330, 340, 350
+            0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330
     };
 
     public interface DetectionCallback {
@@ -140,19 +137,26 @@ public class OpenCVDetectionHelper {
 
             List<DetectionCandidate> candidates = new ArrayList<>();
 
-            // 1) Best path for icons, hearts, screws, coins, components, etc. It segments
-            // the real foreground object inside the selected area, then searches for similar
-            // foreground components in the full image. This avoids large group boxes.
+            // 1) Fast path for real photos. It detects the dominant foreground color from
+            // the selected object, segments similar color regions in the whole image, and
+            // extracts single-object components. This is much faster than scanning hundreds
+            // of rotated templates and works well for cupcakes, buttons, pills, fruits, etc.
+            addColorBlobTemplateCandidates(referenceInfo, candidates);
             addForegroundComponentCandidates(referenceInfo, candidates);
 
-            // 2) Shape-matching fallback. This is rotation and scale tolerant and works well
-            // for silhouettes and high-contrast objects.
-            addContourShapeCandidates(grayFull, referenceInfo, candidates);
+            // 2) Shape fallback for non-color/high-contrast icons. Skip it when the color
+            // path already found objects because Otsu thresholding on real photos creates
+            // many background contours and slows down/harms the result.
+            if (!referenceInfo.usesColorMask || candidates.size() < 2) {
+                addContourShapeCandidates(grayFull, referenceInfo, candidates);
+            }
 
-            // 3) Template matching is kept as a fallback for textured/photographic objects.
-            // Its candidates are later refined/split using the foreground mask so it cannot
-            // dominate the result with boxes around groups of objects.
-            addRotatedTemplateCandidates(grayFull, grayTemplate, threshold, candidates);
+            // 3) Template matching is now a last-resort fallback only. This prevents long
+            // waiting times on large natural images. ImageDetectionActivity also resizes
+            // photos before processing.
+            if (candidates.size() < 2) {
+                addRotatedTemplateCandidates(grayFull, grayTemplate, threshold, candidates);
+            }
 
             List<DetectionCandidate> refined = refineCandidatesWithForegroundMask(candidates, referenceInfo, fullMat.cols(), fullMat.rows());
             List<DetectionCandidate> finalDetections = applyObjectAwareNMS(refined, referenceInfo, nmsThreshold);
@@ -266,6 +270,20 @@ public class OpenCVDetectionHelper {
         }
     }
 
+    private static class DominantColor {
+        final boolean valid;
+        final double hue;
+        final double saturation;
+        final double value;
+
+        DominantColor(boolean valid, double hue, double saturation, double value) {
+            this.valid = valid;
+            this.hue = hue;
+            this.saturation = saturation;
+            this.value = value;
+        }
+    }
+
     private static Mat createLocalReferenceMask(Mat fullRgba, Mat grayFull, Rect selectionRoi) {
         Mat grayRoi = new Mat(grayFull, selectionRoi);
         Mat diff = new Mat();
@@ -282,6 +300,25 @@ public class OpenCVDetectionHelper {
             double minPixels = Math.max(MIN_CONTOUR_AREA, grayRoi.rows() * grayRoi.cols() * 0.015);
             if (nonZero < minPixels) {
                 Imgproc.threshold(diff, mask, 18, 255, Imgproc.THRESH_BINARY);
+            }
+
+            // Add saturated colored pixels from the selection. This is important for photos:
+            // red ladybug icing, blue cupcake tops, yellow animals, etc. may not be very
+            // different in grayscale but are very clear in HSV color space.
+            Mat rgbaRoi = new Mat(fullRgba, selectionRoi);
+            Mat rgbRoi = new Mat();
+            Mat hsvRoi = new Mat();
+            Mat saturatedMask = new Mat();
+            try {
+                Imgproc.cvtColor(rgbaRoi, rgbRoi, Imgproc.COLOR_RGBA2RGB);
+                Imgproc.cvtColor(rgbRoi, hsvRoi, Imgproc.COLOR_RGB2HSV);
+                Core.inRange(hsvRoi, new Scalar(0, 45, 35), new Scalar(180, 255, 255), saturatedMask);
+                Core.bitwise_or(mask, saturatedMask, mask);
+            } finally {
+                rgbaRoi.release();
+                rgbRoi.release();
+                hsvRoi.release();
+                saturatedMask.release();
             }
 
             Mat kernelOpen = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(3, 3));
@@ -325,15 +362,23 @@ public class OpenCVDetectionHelper {
             rgbFull.release();
 
             hsvRoi = new Mat(hsvFull, selectionRoi);
-            Scalar fgHsv = Core.mean(hsvRoi, localReferenceMask);
-            double hue = fgHsv.val[0];
-            double saturation = fgHsv.val[1];
-            double value = fgHsv.val[2];
+            DominantColor dominantColor = estimateDominantColor(hsvRoi, localReferenceMask);
+            double hue = dominantColor.hue;
+            double saturation = dominantColor.saturation;
+            double value = dominantColor.value;
 
-            // Saturated colored objects such as red hearts should be detected by color.
-            // This prevents black borders/text or large black diagram boxes from becoming objects.
-            if (saturation >= 45.0 && value >= 35.0) {
+            // Saturated colored objects such as red ladybugs, blue cupcake tops, pills,
+            // fruits, components, etc. should be detected by color first. A dominant hue
+            // histogram is used instead of simple mean HSV because red wraps around 0/180.
+            if (dominantColor.valid && saturation >= 38.0 && value >= 30.0) {
                 colorMask = createHueMask(hsvFull, hue, saturation, value);
+                int closeSize = Math.max(5, Math.min(11, ((Math.min(selectionRoi.width, selectionRoi.height) / 18) | 1)));
+                Mat kernelCloseColor = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(closeSize, closeSize));
+                Mat kernelOpenColor = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(5, 5));
+                Imgproc.morphologyEx(colorMask, colorMask, Imgproc.MORPH_OPEN, kernelOpenColor);
+                Imgproc.morphologyEx(colorMask, colorMask, Imgproc.MORPH_CLOSE, kernelCloseColor);
+                kernelCloseColor.release();
+                kernelOpenColor.release();
                 useColorMask = Core.countNonZero(colorMask) > MIN_CONTOUR_AREA;
             }
 
@@ -366,10 +411,78 @@ public class OpenCVDetectionHelper {
         }
     }
 
+    private static DominantColor estimateDominantColor(Mat hsvRoi, Mat localMask) {
+        int[] hist = new int[180];
+        double[] satSum = new double[180];
+        double[] valSum = new double[180];
+        int total = 0;
+
+        for (int y = 0; y < hsvRoi.rows(); y++) {
+            for (int x = 0; x < hsvRoi.cols(); x++) {
+                double[] maskValue = localMask.get(y, x);
+                if (maskValue == null || maskValue.length == 0 || maskValue[0] <= 0) continue;
+                double[] hsv = hsvRoi.get(y, x);
+                if (hsv == null || hsv.length < 3) continue;
+                double sat = hsv[1];
+                double val = hsv[2];
+                if (sat < 35.0 || val < 28.0) continue;
+                int h = clamp((int) Math.round(hsv[0]), 0, 179);
+                hist[h]++;
+                satSum[h] += sat;
+                valSum[h] += val;
+                total++;
+            }
+        }
+
+        if (total < 20) {
+            return new DominantColor(false, 0.0, 0.0, 0.0);
+        }
+
+        int bestHue = 0;
+        int bestCount = -1;
+        for (int h = 0; h < 180; h++) {
+            int smoothed = 0;
+            for (int offset = -4; offset <= 4; offset++) {
+                int idx = (h + offset + 180) % 180;
+                smoothed += hist[idx];
+            }
+            if (smoothed > bestCount) {
+                bestCount = smoothed;
+                bestHue = h;
+            }
+        }
+
+        double sumSin = 0.0;
+        double sumCos = 0.0;
+        double sumSat = 0.0;
+        double sumVal = 0.0;
+        int count = 0;
+        for (int h = 0; h < 180; h++) {
+            int dist = Math.abs(h - bestHue);
+            dist = Math.min(dist, 180 - dist);
+            if (dist <= 12 && hist[h] > 0) {
+                double angle = (2.0 * Math.PI * h) / 180.0;
+                sumCos += Math.cos(angle) * hist[h];
+                sumSin += Math.sin(angle) * hist[h];
+                sumSat += satSum[h];
+                sumVal += valSum[h];
+                count += hist[h];
+            }
+        }
+
+        if (count < 10) {
+            return new DominantColor(false, 0.0, 0.0, 0.0);
+        }
+
+        double hue = (Math.atan2(sumSin, sumCos) * 180.0) / (2.0 * Math.PI);
+        if (hue < 0) hue += 180.0;
+        return new DominantColor(true, hue, sumSat / count, sumVal / count);
+    }
+
     private static Mat createHueMask(Mat hsvFull, double hue, double saturation, double value) {
-        int hueTolerance = saturation > 90 ? 16 : 24;
-        double minSat = Math.max(35.0, saturation * 0.45);
-        double minValue = Math.max(25.0, value * 0.35);
+        int hueTolerance = saturation > 105 ? 18 : 28;
+        double minSat = Math.max(68.0, saturation * 0.58);
+        double minValue = Math.max(32.0, value * 0.24);
         Mat mask = new Mat();
 
         double lowHue = hue - hueTolerance;
@@ -396,6 +509,52 @@ public class OpenCVDetectionHelper {
         return mask;
     }
 
+    private static void addColorBlobTemplateCandidates(ReferenceInfo referenceInfo, List<DetectionCandidate> candidates) {
+        if (!referenceInfo.usesColorMask) return;
+
+        Rect templateRect = clampRect(referenceInfo.objectRect, referenceInfo.foregroundMask.cols(), referenceInfo.foregroundMask.rows());
+        if (templateRect.width < MIN_TEMPLATE_SIZE || templateRect.height < MIN_TEMPLATE_SIZE) return;
+
+        Mat referenceTemplate = new Mat(referenceInfo.foregroundMask, templateRect).clone();
+        try {
+            double foregroundPixels = Core.countNonZero(referenceTemplate);
+            double templatePixels = Math.max(1.0, referenceTemplate.cols() * (double) referenceTemplate.rows());
+            double fillRatio = foregroundPixels / templatePixels;
+            if (fillRatio < 0.08 || fillRatio > 0.92) return;
+
+            double[] colorScales = {0.45, 0.60, 0.75, 0.90, 1.00, 1.15, 1.35, 1.60};
+            for (double scale : colorScales) {
+                Mat scaledTemplate = new Mat();
+                Mat result = new Mat();
+                try {
+                    int scaledWidth = Math.max(MIN_TEMPLATE_SIZE, (int) Math.round(referenceTemplate.cols() * scale));
+                    int scaledHeight = Math.max(MIN_TEMPLATE_SIZE, (int) Math.round(referenceTemplate.rows() * scale));
+                    if (scaledWidth >= referenceInfo.foregroundMask.cols() || scaledHeight >= referenceInfo.foregroundMask.rows()) {
+                        continue;
+                    }
+
+                    Imgproc.resize(referenceTemplate, scaledTemplate, new Size(scaledWidth, scaledHeight), 0, 0, Imgproc.INTER_NEAREST);
+                    Imgproc.threshold(scaledTemplate, scaledTemplate, 127, 255, Imgproc.THRESH_BINARY);
+                    if (Core.countNonZero(scaledTemplate) < MIN_CONTOUR_AREA) continue;
+
+                    int resultCols = referenceInfo.foregroundMask.cols() - scaledTemplate.cols() + 1;
+                    int resultRows = referenceInfo.foregroundMask.rows() - scaledTemplate.rows() + 1;
+                    if (resultCols <= 0 || resultRows <= 0) continue;
+
+                    result.create(resultRows, resultCols, CvType.CV_32FC1);
+                    Imgproc.matchTemplate(referenceInfo.foregroundMask, scaledTemplate, result, Imgproc.TM_CCORR_NORMED);
+                    collectLocalMaxima(result, scaledTemplate.cols(), scaledTemplate.rows(), 0.46, candidates);
+                } finally {
+                    scaledTemplate.release();
+                    result.release();
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            referenceTemplate.release();
+        }
+    }
+
     private static void addForegroundComponentCandidates(ReferenceInfo referenceInfo, List<DetectionCandidate> candidates) {
         List<MatOfPoint> contours = new ArrayList<>();
         Mat hierarchy = new Mat();
@@ -404,25 +563,38 @@ public class OpenCVDetectionHelper {
             Imgproc.findContours(maskCopy, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
             for (MatOfPoint contour : contours) {
                 double area = Geometry.contourArea(contour);
-                if (area < Math.max(MIN_CONTOUR_AREA, referenceInfo.contourArea * 0.06)) {
+                double minArea = referenceInfo.usesColorMask
+                        ? Math.max(MIN_CONTOUR_AREA, referenceInfo.contourArea * 0.10)
+                        : Math.max(MIN_CONTOUR_AREA, referenceInfo.contourArea * 0.06);
+                if (area < minArea) {
                     contour.release();
                     continue;
                 }
 
                 Rect rect = Geometry.boundingRect(contour);
-                if (rect.width < MIN_TEMPLATE_SIZE || rect.height < MIN_TEMPLATE_SIZE || isUnreasonableSize(rect, referenceInfo.objectRect)) {
+                int padding = referenceInfo.usesColorMask
+                        ? Math.max(3, (int) Math.round(Math.min(rect.width, rect.height) * 0.06))
+                        : 2;
+                Rect candidateRect = expandRect(rect, padding, referenceInfo.foregroundMask.cols(), referenceInfo.foregroundMask.rows());
+                if (candidateRect.width < MIN_TEMPLATE_SIZE || candidateRect.height < MIN_TEMPLATE_SIZE || isUnreasonableSize(candidateRect, referenceInfo.objectRect)) {
                     contour.release();
                     continue;
                 }
 
                 double shapeScore = Geometry.matchShapes(referenceInfo.contour, contour, Imgproc.CONTOURS_MATCH_I3, 0);
                 double areaRatio = area / Math.max(1.0, referenceInfo.contourArea);
-                boolean plausibleByShape = shapeScore <= SEGMENTATION_SHAPE_THRESHOLD;
-                boolean plausibleBySize = areaRatio >= MIN_AREA_RATIO && areaRatio <= MAX_AREA_RATIO;
+                boolean plausibleByShape = referenceInfo.usesColorMask
+                        ? shapeScore <= 1.65
+                        : shapeScore <= SEGMENTATION_SHAPE_THRESHOLD;
+                boolean plausibleBySize = referenceInfo.usesColorMask
+                        ? areaRatio >= 0.10 && areaRatio <= 5.50
+                        : areaRatio >= MIN_AREA_RATIO && areaRatio <= MAX_AREA_RATIO;
 
                 if (plausibleByShape && plausibleBySize) {
-                    double score = 1.55 - Math.min(1.25, shapeScore) - 0.08 * Math.abs(Math.log(Math.max(0.05, areaRatio)));
-                    candidates.add(new DetectionCandidate(rect, score));
+                    double score = referenceInfo.usesColorMask
+                            ? 1.72 - 0.04 * Math.abs(Math.log(Math.max(0.05, areaRatio))) - Math.min(0.35, shapeScore * 0.08)
+                            : 1.55 - Math.min(1.25, shapeScore) - 0.08 * Math.abs(Math.log(Math.max(0.05, areaRatio)));
+                    candidates.add(new DetectionCandidate(candidateRect, score));
                 }
                 contour.release();
             }
@@ -499,6 +671,7 @@ public class OpenCVDetectionHelper {
     }
 
     private static void addContourShapeCandidates(Mat grayFull, ReferenceInfo referenceInfo, List<DetectionCandidate> candidates) {
+        if (referenceInfo.usesColorMask && candidates.size() >= 2) return;
         Mat binary = new Mat();
         try {
             boolean darkObject = referenceInfo.foregroundGray < referenceInfo.backgroundGray;
@@ -621,9 +794,14 @@ public class OpenCVDetectionHelper {
 
                 double shapeScore = Geometry.matchShapes(referenceInfo.contour, contour, Imgproc.CONTOURS_MATCH_I3, 0);
                 double areaRatio = area / Math.max(1.0, referenceInfo.contourArea);
-                boolean plausible = shapeScore <= SEGMENTATION_SHAPE_THRESHOLD
-                        && areaRatio >= MIN_AREA_RATIO
-                        && areaRatio <= MAX_AREA_RATIO;
+                boolean plausible;
+                if (referenceInfo.usesColorMask) {
+                    plausible = shapeScore <= 1.65 && areaRatio >= 0.10 && areaRatio <= 5.50;
+                } else {
+                    plausible = shapeScore <= SEGMENTATION_SHAPE_THRESHOLD
+                            && areaRatio >= MIN_AREA_RATIO
+                            && areaRatio <= MAX_AREA_RATIO;
+                }
 
                 if (plausible) {
                     double score = baseScore + 0.30 - Math.min(0.35, shapeScore * 0.35);

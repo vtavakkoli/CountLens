@@ -3,7 +3,9 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/countlens_image_background">
+    android:background="@color/countlens_image_background"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp">
 
     <LinearLayout
         android:id="@+id/top_bar"
@@ -11,21 +13,19 @@
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingTop="18dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="12dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="8dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
         <ImageButton
             android:id="@+id/btn_back"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/btn_back"
-            android:padding="12dp"
+            android:padding="11dp"
             android:src="@android:drawable/ic_media_previous"
             app:tint="@android:color/white" />
 
@@ -34,81 +34,99 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical"
-            android:paddingStart="6dp">
+            android:paddingStart="8dp">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
                 android:text="@string/app_name"
                 android:textColor="@android:color/white"
-                android:textSize="22sp"
+                android:textSize="25sp"
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/tv_top_hint"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:text="@string/status_select_object"
                 android:textColor="#BFDBFE"
-                android:textSize="12sp" />
+                android:textSize="13sp" />
         </LinearLayout>
     </LinearLayout>
 
-    <FrameLayout
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/image_stage"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="12dp"
-        android:background="@drawable/bg_image_frame"
-        android:clipToOutline="true"
-        android:padding="8dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="10dp"
+        app:cardBackgroundColor="#020617"
+        app:cardCornerRadius="22dp"
+        app:cardElevation="0dp"
         app:layout_constraintBottom_toTopOf="@+id/control_panel"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/top_bar">
+        app:layout_constraintTop_toBottomOf="@+id/top_bar"
+        app:strokeColor="#1E293B"
+        app:strokeWidth="1dp">
 
-        <com.ai.countlens.ZoomableImageView
-            android:id="@+id/iv_photo"
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:contentDescription="@string/content_desc_image"
-            android:scaleType="matrix" />
+            android:background="#020617">
 
-        <com.ai.countlens.SelectionOverlayView
-            android:id="@+id/selection_overlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            <com.ai.countlens.ZoomableImageView
+                android:id="@+id/iv_photo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="#020617"
+                android:contentDescription="@string/content_desc_image"
+                android:scaleType="matrix" />
 
-        <ProgressBar
-            android:id="@+id/progress_detection"
-            style="?android:attr/progressBarStyleLarge"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:layout_gravity="center"
-            android:visibility="gone" />
-    </FrameLayout>
+            <com.ai.countlens.SelectionOverlayView
+                android:id="@+id/selection_overlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <ProgressBar
+                android:id="@+id/progress_detection"
+                style="?android:attr/progressBarStyleLarge"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_gravity="center"
+                android:indeterminateTint="@color/countlens_primary"
+                android:visibility="gone" />
+        </FrameLayout>
+    </com.google.android.material.card.MaterialCardView>
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/control_panel"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="32dp"
+        android:layout_marginStart="0dp"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="20dp"
         app:cardBackgroundColor="@color/countlens_surface"
-        app:cardCornerRadius="28dp"
-        app:cardElevation="8dp"
+        app:cardCornerRadius="26dp"
+        app:cardElevation="12dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
+        app:layout_constraintStart_toStartOf="parent"
+        app:strokeColor="#E5E7EB"
+        app:strokeWidth="1dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingStart="18dp"
-            android:paddingTop="18dp"
-            android:paddingEnd="18dp"
-            android:paddingBottom="18dp">
+            android:paddingStart="16dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="14dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -121,9 +139,12 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxLines="2"
                     android:text="@string/status_select_object"
                     android:textColor="@color/countlens_text"
-                    android:textSize="15sp"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -131,18 +152,18 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:background="@drawable/bg_pill"
-                    android:backgroundTint="#2563EB"
-                    android:paddingStart="12dp"
-                    android:paddingTop="7dp"
-                    android:paddingEnd="12dp"
-                    android:paddingBottom="7dp"
+                    android:backgroundTint="#DBEAFE"
+                    android:fontFamily="sans-serif-medium"
+                    android:paddingStart="14dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="8dp"
                     android:text="@string/result_count_placeholder"
-                    android:textColor="@android:color/white"
-                    android:textSize="13sp"
+                    android:textColor="#1D4ED8"
+                    android:textSize="14sp"
                     android:textStyle="bold"
                     android:visibility="gone" />
             </LinearLayout>
-
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -154,37 +175,56 @@
                     android:id="@+id/btn_zoom_mode"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_marginEnd="8dp"
+                    android:layout_height="46dp"
+                    android:layout_marginEnd="6dp"
                     android:layout_weight="1"
+                    android:fontFamily="sans-serif-medium"
+                    android:minHeight="46dp"
                     android:text="@string/btn_zoom_mode"
                     android:textAllCaps="false"
-                    app:cornerRadius="16dp" />
+                    android:textColor="@color/countlens_button_outline_text"
+                    android:textSize="14sp"
+                    app:backgroundTint="@color/countlens_button_outline_bg"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/countlens_button_outline_stroke"
+                    app:strokeWidth="1dp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_fit_image"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="8dp"
+                    android:layout_height="46dp"
+                    android:layout_marginStart="6dp"
                     android:layout_weight="1"
+                    android:fontFamily="sans-serif-medium"
+                    android:minHeight="46dp"
                     android:text="@string/btn_fit_image"
                     android:textAllCaps="false"
-                    app:cornerRadius="16dp" />
+                    android:textColor="@color/countlens_button_outline_text"
+                    android:textSize="14sp"
+                    app:backgroundTint="@color/countlens_button_outline_bg"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="@color/countlens_button_outline_stroke"
+                    app:strokeWidth="1dp" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_detect"
                 android:layout_width="match_parent"
-                android:layout_height="58dp"
-                android:layout_marginTop="16dp"
+                android:layout_height="56dp"
+                android:layout_marginTop="12dp"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="56dp"
                 android:text="@string/btn_detect"
                 android:textAllCaps="false"
-                android:textColor="@android:color/white"
-                android:textSize="16sp"
+                android:textColor="@color/countlens_button_primary_text"
+                android:textSize="17sp"
+                app:backgroundTint="@color/countlens_button_primary_bg"
                 app:cornerRadius="18dp"
                 app:icon="@drawable/ic_lens_outline"
-                app:iconTint="@android:color/white" />
+                app:iconGravity="textStart"
+                app:iconPadding="12dp"
+                app:iconTint="@color/countlens_button_primary_text" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -196,23 +236,37 @@
                     android:id="@+id/btn_reset"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="54dp"
-                    android:layout_marginEnd="8dp"
+                    android:layout_height="50dp"
+                    android:layout_marginEnd="6dp"
                     android:layout_weight="1"
+                    android:fontFamily="sans-serif-medium"
+                    android:minHeight="50dp"
                     android:text="@string/btn_reset"
                     android:textAllCaps="false"
-                    app:cornerRadius="16dp" />
+                    android:textColor="@color/countlens_button_outline_text"
+                    android:textSize="15sp"
+                    app:backgroundTint="@color/countlens_button_outline_bg"
+                    app:cornerRadius="16dp"
+                    app:strokeColor="@color/countlens_button_outline_stroke"
+                    app:strokeWidth="1dp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_save"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="0dp"
-                    android:layout_height="54dp"
-                    android:layout_marginStart="8dp"
+                    android:layout_height="50dp"
+                    android:layout_marginStart="6dp"
                     android:layout_weight="1"
+                    android:fontFamily="sans-serif-medium"
+                    android:minHeight="50dp"
                     android:text="@string/btn_save"
                     android:textAllCaps="false"
-                    app:cornerRadius="16dp" />
+                    android:textColor="@color/countlens_button_outline_text"
+                    android:textSize="15sp"
+                    app:backgroundTint="@color/countlens_button_outline_bg"
+                    app:cornerRadius="16dp"
+                    app:strokeColor="@color/countlens_button_outline_stroke"
+                    app:strokeWidth="1dp" />
             </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

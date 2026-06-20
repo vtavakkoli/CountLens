@@ -23,7 +23,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
 
     private ZoomableImageView ivPhoto;
     private SelectionOverlayView selectionOverlay;
-    private TextView tvStatus, tvResultCount;
+    private TextView tvStatus, tvTopHint, tvResultCount;
     private Button btnDetect, btnReset, btnSave, btnZoomMode, btnFitImage;
     private ImageButton btnBack;
     private ProgressBar progressDetection;
@@ -70,6 +70,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
         ivPhoto = findViewById(R.id.iv_photo);
         selectionOverlay = findViewById(R.id.selection_overlay);
         tvStatus = findViewById(R.id.tv_status);
+        tvTopHint = findViewById(R.id.tv_top_hint);
         tvResultCount = findViewById(R.id.tv_result_count);
         btnDetect = findViewById(R.id.btn_detect);
         btnReset = findViewById(R.id.btn_reset);
@@ -80,7 +81,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
         progressDetection = findViewById(R.id.progress_detection);
 
         selectionOverlay.setSelectionShape(settingsManager.getSelectionShape());
-        tvStatus.setText(R.string.loading_image);
+        setStatusText(R.string.loading_image);
         setZoomMode(false);
 
         boolean fromCamera = getIntent().getBooleanExtra("from_camera", false);
@@ -126,8 +127,9 @@ public class ImageDetectionActivity extends AppCompatActivity {
         ivPhoto.setImageBitmap(sourceBitmap);
         ivPhoto.resetZoom();
         selectionOverlay.reset();
+        selectionOverlay.setVisibility(View.VISIBLE);
         tvResultCount.setVisibility(View.GONE);
-        tvStatus.setText(R.string.status_ready);
+        setStatusText(R.string.status_ready);
         setZoomMode(false);
     }
 
@@ -180,9 +182,12 @@ public class ImageDetectionActivity extends AppCompatActivity {
                 (detectedBitmap, count) -> runOnUiThread(() -> {
                     resultBitmap = detectedBitmap;
                     ivPhoto.setImageBitmap(resultBitmap);
+                    // Hide the orange selection handles after detection. Otherwise users can confuse
+                    // the selected template box with real detections.
+                    selectionOverlay.setVisibility(View.GONE);
                     tvResultCount.setText(getString(R.string.result_count_format, count));
                     tvResultCount.setVisibility(View.VISIBLE);
-                    tvStatus.setText(count > 0 ? R.string.status_detection_complete : R.string.error_detection_failed);
+                    setStatusText(count > 0 ? R.string.status_detection_complete : R.string.error_detection_failed);
                     setDetectingState(false);
                 })
         )).start();
@@ -190,15 +195,32 @@ public class ImageDetectionActivity extends AppCompatActivity {
 
     private void setDetectingState(boolean detecting) {
         progressDetection.setVisibility(detecting ? View.VISIBLE : View.GONE);
-        btnDetect.setEnabled(!detecting);
-        btnReset.setEnabled(!detecting);
-        btnSave.setEnabled(!detecting);
-        btnZoomMode.setEnabled(!detecting);
-        btnFitImage.setEnabled(!detecting);
+
+        // Keep the buttons visually readable. Material disabled colors were too pale on
+        // some phones, so we explicitly control alpha and re-enable every control when
+        // detection is finished.
+        setButtonState(btnDetect, !detecting);
+        setButtonState(btnReset, !detecting);
+        setButtonState(btnSave, !detecting);
+        setButtonState(btnZoomMode, !detecting);
+        setButtonState(btnFitImage, !detecting);
+
         selectionOverlay.setEnabled(!detecting && !zoomMode);
         ivPhoto.setZoomEnabled(!detecting && zoomMode);
         if (detecting) {
-            tvStatus.setText(R.string.status_detecting_fast);
+            setStatusText(R.string.status_detecting_fast);
+        }
+    }
+
+    private void setButtonState(Button button, boolean enabled) {
+        button.setEnabled(enabled);
+        button.setAlpha(enabled ? 1.0f : 0.70f);
+    }
+
+    private void setStatusText(int stringResId) {
+        tvStatus.setText(stringResId);
+        if (tvTopHint != null) {
+            tvTopHint.setText(stringResId);
         }
     }
 
@@ -208,7 +230,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
         selectionOverlay.setEnabled(!enabled);
         selectionOverlay.setVisibility(enabled ? View.GONE : View.VISIBLE);
         btnZoomMode.setText(enabled ? R.string.btn_select_mode : R.string.btn_zoom_mode);
-        tvStatus.setText(enabled ? R.string.status_zoom_mode : R.string.status_select_object);
+        setStatusText(enabled ? R.string.status_zoom_mode : R.string.status_select_object);
     }
 
     private RectF convertToBitmapCoordinates(RectF viewRect) {
@@ -217,13 +239,14 @@ public class ImageDetectionActivity extends AppCompatActivity {
 
     private void resetSelection() {
         selectionOverlay.reset();
+        selectionOverlay.setVisibility(View.VISIBLE);
         ivPhoto.resetZoom();
         if (sourceBitmap != null) {
             ivPhoto.setImageBitmap(sourceBitmap);
         }
         resultBitmap = null;
         tvResultCount.setVisibility(View.GONE);
-        tvStatus.setText(R.string.status_select_object);
+        setStatusText(R.string.status_select_object);
         setZoomMode(false);
     }
 

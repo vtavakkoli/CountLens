@@ -24,7 +24,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
     private ZoomableImageView ivPhoto;
     private SelectionOverlayView selectionOverlay;
     private TextView tvStatus, tvTopHint, tvResultCount;
-    private Button btnDetect, btnReset, btnSave, btnZoomMode, btnFitImage;
+    private Button btnDetect, btnAutoCount, btnReset, btnSave, btnZoomMode, btnFitImage;
     private ImageButton btnBack;
     private ProgressBar progressDetection;
     private Bitmap sourceBitmap;
@@ -73,6 +73,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
         tvTopHint = findViewById(R.id.tv_top_hint);
         tvResultCount = findViewById(R.id.tv_result_count);
         btnDetect = findViewById(R.id.btn_detect);
+        btnAutoCount = findViewById(R.id.btn_auto_count);
         btnReset = findViewById(R.id.btn_reset);
         btnSave = findViewById(R.id.btn_save);
         btnZoomMode = findViewById(R.id.btn_zoom_mode);
@@ -93,6 +94,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
 
         btnBack.setOnClickListener(v -> finish());
         btnDetect.setOnClickListener(v -> performDetection());
+        btnAutoCount.setOnClickListener(v -> performAutoCount());
         btnReset.setOnClickListener(v -> resetSelection());
         btnSave.setOnClickListener(v -> saveResult());
         btnZoomMode.setOnClickListener(v -> setZoomMode(!zoomMode));
@@ -193,6 +195,32 @@ public class ImageDetectionActivity extends AppCompatActivity {
         )).start();
     }
 
+
+    private void performAutoCount() {
+        if (sourceBitmap == null) {
+            Toast.makeText(this, R.string.error_no_image, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (zoomMode) {
+            setZoomMode(false);
+        }
+
+        setDetectingState(true);
+        new Thread(() -> OpenCVDetectionHelper.detectAllObjects(
+                sourceBitmap,
+                (detectedBitmap, count) -> runOnUiThread(() -> {
+                    resultBitmap = detectedBitmap;
+                    ivPhoto.setImageBitmap(resultBitmap);
+                    selectionOverlay.setVisibility(View.GONE);
+                    tvResultCount.setText(getString(R.string.result_count_format, count));
+                    tvResultCount.setVisibility(View.VISIBLE);
+                    setStatusText(count > 0 ? R.string.status_detection_complete : R.string.error_detection_failed);
+                    setDetectingState(false);
+                })
+        )).start();
+    }
+
     private void setDetectingState(boolean detecting) {
         progressDetection.setVisibility(detecting ? View.VISIBLE : View.GONE);
 
@@ -200,6 +228,7 @@ public class ImageDetectionActivity extends AppCompatActivity {
         // some phones, so we explicitly control alpha and re-enable every control when
         // detection is finished.
         setButtonState(btnDetect, !detecting);
+        setButtonState(btnAutoCount, !detecting);
         setButtonState(btnReset, !detecting);
         setButtonState(btnSave, !detecting);
         setButtonState(btnZoomMode, !detecting);

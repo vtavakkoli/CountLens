@@ -209,6 +209,22 @@
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_auto_count"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="12dp"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="50dp"
+                android:text="@string/btn_auto_count"
+                android:textAllCaps="false"
+                android:textColor="@color/countlens_button_outline_text"
+                android:textSize="15sp"
+                app:backgroundTint="@color/countlens_button_outline_bg"
+                app:cornerRadius="16dp"
+                app:strokeColor="@color/countlens_button_outline_stroke"
+                app:strokeWidth="1dp" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_detect"
                 android:layout_width="match_parent"
                 android:layout_height="56dp"

@@ -212,6 +212,69 @@ public class OpenCVDetectionHelper {
         }
     }
 
+
+    public static void detectAllObjects(Bitmap sourceBitmap, DetectionCallback callback) {
+        Mat fullMat = new Mat();
+        Mat gray = new Mat();
+        Mat edges = new Mat();
+        Mat closed = new Mat();
+        try {
+            Utils.bitmapToMat(sourceBitmap, fullMat);
+            Imgproc.cvtColor(fullMat, gray, Imgproc.COLOR_RGBA2GRAY);
+            Imgproc.GaussianBlur(gray, gray, new Size(5, 5), 0);
+            Imgproc.Canny(gray, edges, 45, 135);
+            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(7, 7));
+            Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel);
+            kernel.release();
+
+            List<MatOfPoint> contours = new ArrayList<>();
+            Mat hierarchy = new Mat();
+            Imgproc.findContours(closed, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+            hierarchy.release();
+
+            double imageArea = Math.max(1.0, fullMat.cols() * (double) fullMat.rows());
+            double minArea = Math.max(80.0, imageArea * 0.00035);
+            double maxArea = imageArea * 0.65;
+            List<DetectionCandidate> candidates = new ArrayList<>();
+            for (MatOfPoint contour : contours) {
+                Rect rect = Imgproc.boundingRect(contour);
+                double area = rect.width * (double) rect.height;
+                if (area >= minArea && area <= maxArea && rect.width >= 8 && rect.height >= 8) {
+                    candidates.add(new DetectionCandidate(expandRect(rect, 3, fullMat.cols(), fullMat.rows()), area));
+                }
+                contour.release();
+            }
+
+            List<DetectionCandidate> detections = applySimpleNMS(candidates, 0.28);
+            callback.onDetectionComplete(drawDetections(fullMat, detections), detections.size());
+        } catch (Exception e) {
+            callback.onDetectionComplete(sourceBitmap, 0);
+        } finally {
+            fullMat.release();
+            gray.release();
+            edges.release();
+            closed.release();
+        }
+    }
+
+    private static List<DetectionCandidate> applySimpleNMS(List<DetectionCandidate> candidates, double overlapThreshold) {
+        candidates.sort((a, b) -> Double.compare(b.score, a.score));
+        List<DetectionCandidate> kept = new ArrayList<>();
+        for (DetectionCandidate candidate : candidates) {
+            boolean duplicate = false;
+            for (DetectionCandidate existing : kept) {
+                if (intersectionOverUnion(candidate.rect, existing.rect) > overlapThreshold) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) kept.add(candidate);
+            if (kept.size() >= 900) break;
+        }
+        kept.sort(Comparator.comparingInt((DetectionCandidate c) -> c.rect.y).thenComparingInt(c -> c.rect.x));
+        return kept;
+    }
+
     private static Bitmap drawDetections(Mat fullMat, List<DetectionCandidate> detections) {
         Mat output = fullMat.clone();
         try {

@@ -32,16 +32,14 @@ public class OpenCVDetectionHelper {
     private static final double MAX_BOX_AREA_RATIO = 7.50;
     private static final double MIN_CONTOUR_AREA_RATIO = 0.06;
     private static final double MAX_CONTOUR_AREA_RATIO = 8.50;
-    private static final double MAX_ASPECT_LOG_DISTANCE = 1.35; // orientation-independent aspect tolerance
+    private static final double MAX_ASPECT_LOG_DISTANCE = 1.35;
 
     // Template matching is used only as a fallback. The main photo path is component based.
     private static final double[] FAST_TEMPLATE_SCALES = {0.55, 0.70, 0.85, 1.00, 1.20, 1.45};
     private static final double[] FAST_TEMPLATE_ANGLES = {0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330};
 
     // Dense circular objects such as pipe openings need a detector that looks for one
-    // circular/ring instance, not for a big connected blue component.  The normal color
-    // component path merges touching pipes into blobs, so CountLens first tries this
-    // reference-guided Hough ring detector when the selected object looks like a ring.
+    // circular/ring instance, not for a big connected blue component.
     private static final int MAX_RING_CANDIDATES_TO_VALIDATE = 900;
     private static final int MAX_RING_DETECTIONS = 650;
 
@@ -164,27 +162,15 @@ public class OpenCVDetectionHelper {
             referenceInfo = buildReferenceInfo(fullMat, grayFull, selectionRoi);
             List<DetectionCandidate> candidates = new ArrayList<>();
 
-            // Special but important case: dense circular/ring objects such as blue pipe
-            // openings.  Color connected-components merge many touching pipes into one large
-            // object, and template matching detects only fragments.  A selected pipe opening is
-            // better represented as a ring/circle, so detect circles directly and validate them
-            // by the selected ring color and dark inner hole.
             boolean usedRingDetector = addHoughRingCandidates(fullMat, grayFull, referenceInfo, candidates);
 
             if (!usedRingDetector) {
-                // Best path for real photos: segment the selected object's foreground color/contrast,
-                // merge broken visual pieces into one object component, then count one box per component.
-                // This fixes the old behaviour where a bottle/heart was counted three times internally.
                 addMergedObjectComponentCandidates(referenceInfo, candidates);
-
-                // If the selected object has no reliable color mask, use shape/contrast components.
                 if (candidates.isEmpty() || (!referenceInfo.usesColorMask && candidates.size() < 2)) {
                     addContrastShapeCandidates(grayFull, referenceInfo, candidates);
                 }
             }
 
-            // Expensive rotated template matching is now only a last-resort fallback. It is not used
-            // when the component/ring detector already found objects, so phone photos stay fast.
             if (candidates.isEmpty()) {
                 Rect objectRoi = clampRect(referenceInfo.objectRect, fullMat.cols(), fullMat.rows());
                 Mat grayTemplate = new Mat(grayFull, objectRoi).clone();
@@ -210,69 +196,6 @@ public class OpenCVDetectionHelper {
             grayFull.release();
             if (referenceInfo != null) referenceInfo.release();
         }
-    }
-
-
-    public static void detectAllObjects(Bitmap sourceBitmap, DetectionCallback callback) {
-        Mat fullMat = new Mat();
-        Mat gray = new Mat();
-        Mat edges = new Mat();
-        Mat closed = new Mat();
-        try {
-            Utils.bitmapToMat(sourceBitmap, fullMat);
-            Imgproc.cvtColor(fullMat, gray, Imgproc.COLOR_RGBA2GRAY);
-            Imgproc.GaussianBlur(gray, gray, new Size(5, 5), 0);
-            Imgproc.Canny(gray, edges, 45, 135);
-            Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(7, 7));
-            Imgproc.morphologyEx(edges, closed, Imgproc.MORPH_CLOSE, kernel);
-            kernel.release();
-
-            List<MatOfPoint> contours = new ArrayList<>();
-            Mat hierarchy = new Mat();
-            Imgproc.findContours(closed, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
-            hierarchy.release();
-
-            double imageArea = Math.max(1.0, fullMat.cols() * (double) fullMat.rows());
-            double minArea = Math.max(80.0, imageArea * 0.00035);
-            double maxArea = imageArea * 0.65;
-            List<DetectionCandidate> candidates = new ArrayList<>();
-            for (MatOfPoint contour : contours) {
-                Rect rect = Imgproc.boundingRect(contour);
-                double area = rect.width * (double) rect.height;
-                if (area >= minArea && area <= maxArea && rect.width >= 8 && rect.height >= 8) {
-                    candidates.add(new DetectionCandidate(expandRect(rect, 3, fullMat.cols(), fullMat.rows()), area));
-                }
-                contour.release();
-            }
-
-            List<DetectionCandidate> detections = applySimpleNMS(candidates, 0.28);
-            callback.onDetectionComplete(drawDetections(fullMat, detections), detections.size());
-        } catch (Exception e) {
-            callback.onDetectionComplete(sourceBitmap, 0);
-        } finally {
-            fullMat.release();
-            gray.release();
-            edges.release();
-            closed.release();
-        }
-    }
-
-    private static List<DetectionCandidate> applySimpleNMS(List<DetectionCandidate> candidates, double overlapThreshold) {
-        candidates.sort((a, b) -> Double.compare(b.score, a.score));
-        List<DetectionCandidate> kept = new ArrayList<>();
-        for (DetectionCandidate candidate : candidates) {
-            boolean duplicate = false;
-            for (DetectionCandidate existing : kept) {
-                if (intersectionOverUnion(candidate.rect, existing.rect) > overlapThreshold) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (!duplicate) kept.add(candidate);
-            if (kept.size() >= 900) break;
-        }
-        kept.sort(Comparator.comparingInt((DetectionCandidate c) -> c.rect.y).thenComparingInt(c -> c.rect.x));
-        return kept;
     }
 
     private static Bitmap drawDetections(Mat fullMat, List<DetectionCandidate> detections) {
@@ -349,10 +272,19 @@ public class OpenCVDetectionHelper {
                 grayRoi.release();
             }
 
-            MaskBuildResult full = createFullForegroundMask(fullRgba, grayFull, selectionRoi, objectRect, localMask, dominantColor, foregroundGray, backgroundGray);
+            MaskBuildResult full = createFullForegroundMask(
+                    fullRgba,
+                    grayFull,
+                    selectionRoi,
+                    objectRect,
+                    dominantColor,
+                    foregroundGray,
+                    backgroundGray
+            );
             fullMask = full.mask;
             usesColorMask = full.usesColorMask;
         } catch (Exception ignored) {
+            fullMask.release();
             fullMask = Mat.zeros(grayFull.rows(), grayFull.cols(), CvType.CV_8UC1);
             Imgproc.rectangle(fullMask, selectionRoi.tl(), selectionRoi.br(), new Scalar(255), -1);
             if (referenceContour != null) referenceContour.release();
@@ -434,8 +366,6 @@ public class OpenCVDetectionHelper {
                 hsvRoi.release();
             }
 
-            // Use the colored foreground when reliable; otherwise use contrast. For photos, this
-            // makes red bottles/cupcakes independent from the blue/background region.
             if (dominantColor.valid && Core.countNonZero(colorMask) >= MIN_CONTOUR_AREA) {
                 Core.bitwise_or(colorMask, contrastMask, finalMask);
             } else {
@@ -461,7 +391,6 @@ public class OpenCVDetectionHelper {
             Mat grayFull,
             Rect selectionRoi,
             Rect objectRect,
-            Mat localReferenceMask,
             DominantColor dominantColor,
             double foregroundGray,
             double backgroundGray
@@ -493,9 +422,6 @@ public class OpenCVDetectionHelper {
                 }
             }
 
-            // This is the important robust step: close/dilate the mask using the size of the
-            // selected object, not a fixed 3x3 kernel. It merges highlights, black decoration lines,
-            // and broken red pieces into one physical object before counting.
             cleanMaskForWholeImage(finalMask, objectRect, useColorMask);
             return new MaskBuildResult(finalMask, useColorMask);
         } catch (Exception ignored) {
@@ -636,7 +562,6 @@ public class OpenCVDetectionHelper {
         }
     }
 
-
     private static boolean addHoughRingCandidates(Mat fullRgba, Mat grayFull, ReferenceInfo referenceInfo, List<DetectionCandidate> candidates) {
         RingReference ringReference = buildRingReference(fullRgba, grayFull, referenceInfo.selectionRect);
         if (!ringReference.valid) return false;
@@ -650,8 +575,6 @@ public class OpenCVDetectionHelper {
             int maxRadius = Math.max(minRadius + 2, (int) Math.round(ringReference.radius * 1.85));
             double minDistance = Math.max(5.0, ringReference.radius * 0.90);
 
-            // A low param2 is needed for dense pipe stacks, but every Hough proposal is
-            // validated afterwards using selected color + dark-hole evidence to remove noise.
             Imgproc.HoughCircles(
                     blurred,
                     circles,
@@ -670,9 +593,7 @@ public class OpenCVDetectionHelper {
                 if (c == null || c.length < 3) continue;
                 checked++;
                 DetectionCandidate candidate = validateRingCandidate(fullRgba, grayFull, c[0], c[1], c[2], ringReference);
-                if (candidate != null) {
-                    candidates.add(candidate);
-                }
+                if (candidate != null) candidates.add(candidate);
             }
 
             if (candidates.size() < 4) {
@@ -680,8 +601,6 @@ public class OpenCVDetectionHelper {
                 return false;
             }
 
-            // Keep the best candidates before the generic NMS.  This prevents bad Hough noise
-            // from dominating runtime on very large/dense industrial photos.
             Collections.sort(candidates, (a, b) -> Double.compare(b.score, a.score));
             if (candidates.size() > MAX_RING_DETECTIONS) {
                 candidates.subList(MAX_RING_DETECTIONS, candidates.size()).clear();
@@ -880,15 +799,16 @@ public class OpenCVDetectionHelper {
             for (MatOfPoint contour : contours) {
                 try {
                     double area = Geometry.contourArea(contour);
-                    if (area < Math.max(MIN_CONTOUR_AREA, referenceInfo.contourArea * MIN_CONTOUR_AREA_RATIO)) {
-                        continue;
-                    }
+                    if (area < Math.max(MIN_CONTOUR_AREA, referenceInfo.contourArea * MIN_CONTOUR_AREA_RATIO)) continue;
                     Rect rect = Geometry.boundingRect(contour);
-                    Rect padded = expandRect(rect, Math.max(2, (int) Math.round(Math.min(rect.width, rect.height) * 0.025)), referenceInfo.foregroundMask.cols(), referenceInfo.foregroundMask.rows());
+                    Rect padded = expandRect(
+                            rect,
+                            Math.max(2, (int) Math.round(Math.min(rect.width, rect.height) * 0.025)),
+                            referenceInfo.foregroundMask.cols(),
+                            referenceInfo.foregroundMask.rows()
+                    );
                     CandidateScore score = validateComponent(padded, area, referenceInfo);
-                    if (score.valid) {
-                        candidates.add(new DetectionCandidate(padded, score.score));
-                    }
+                    if (score.valid) candidates.add(new DetectionCandidate(padded, score.score));
                 } finally {
                     contour.release();
                 }
@@ -911,34 +831,23 @@ public class OpenCVDetectionHelper {
     }
 
     private static CandidateScore validateComponent(Rect rect, double contourArea, ReferenceInfo referenceInfo) {
-        if (rect.width < MIN_TEMPLATE_SIZE || rect.height < MIN_TEMPLATE_SIZE) {
-            return new CandidateScore(false, 0.0);
-        }
+        if (rect.width < MIN_TEMPLATE_SIZE || rect.height < MIN_TEMPLATE_SIZE) return new CandidateScore(false, 0.0);
 
         double boxArea = Math.max(1.0, rect.width * (double) rect.height);
         double boxRatio = boxArea / referenceInfo.objectBoxArea;
         double contourRatio = contourArea / Math.max(1.0, referenceInfo.contourArea);
-        if (boxRatio < MIN_BOX_AREA_RATIO || boxRatio > MAX_BOX_AREA_RATIO) {
-            return new CandidateScore(false, 0.0);
-        }
-        if (contourRatio < MIN_CONTOUR_AREA_RATIO || contourRatio > MAX_CONTOUR_AREA_RATIO) {
-            return new CandidateScore(false, 0.0);
-        }
+        if (boxRatio < MIN_BOX_AREA_RATIO || boxRatio > MAX_BOX_AREA_RATIO) return new CandidateScore(false, 0.0);
+        if (contourRatio < MIN_CONTOUR_AREA_RATIO || contourRatio > MAX_CONTOUR_AREA_RATIO) return new CandidateScore(false, 0.0);
 
         double aspect = normalizedAspect(rect);
         double aspectDistance = Math.abs(Math.log(Math.max(0.05, aspect / Math.max(0.05, referenceInfo.referenceAspect))));
-        if (aspectDistance > MAX_ASPECT_LOG_DISTANCE) {
-            return new CandidateScore(false, 0.0);
-        }
+        if (aspectDistance > MAX_ASPECT_LOG_DISTANCE) return new CandidateScore(false, 0.0);
 
         double fillRatio = contourArea / boxArea;
         boolean plausibleFill = fillRatio >= Math.max(0.02, referenceInfo.referenceFillRatio * 0.25)
                 && fillRatio <= Math.min(0.98, referenceInfo.referenceFillRatio * 3.20 + 0.15);
-        if (!plausibleFill && boxRatio < 0.22) {
-            return new CandidateScore(false, 0.0);
-        }
+        if (!plausibleFill && boxRatio < 0.22) return new CandidateScore(false, 0.0);
 
-        // Border objects are often partly visible, so do not reject them. Just give them lower score.
         double sizePenalty = Math.abs(Math.log(Math.max(0.06, boxRatio)));
         double contourPenalty = Math.abs(Math.log(Math.max(0.06, contourRatio)));
         double fillPenalty = Math.abs(fillRatio - referenceInfo.referenceFillRatio);
@@ -965,9 +874,7 @@ public class OpenCVDetectionHelper {
                     CandidateScore basic = validateComponent(rect, area, referenceInfo);
                     if (!basic.valid) continue;
                     double shape = Geometry.matchShapes(referenceInfo.contour, contour, Imgproc.CONTOURS_MATCH_I3, 0.0);
-                    if (shape <= 0.80) {
-                        candidates.add(new DetectionCandidate(rect, basic.score - Math.min(0.9, shape)));
-                    }
+                    if (shape <= 0.80) candidates.add(new DetectionCandidate(rect, basic.score - Math.min(0.9, shape)));
                 } finally {
                     contour.release();
                 }
@@ -1055,13 +962,9 @@ public class OpenCVDetectionHelper {
                     break;
                 }
             }
-            if (!duplicate) {
-                result.add(new DetectionCandidate(candidateRect, candidate.score));
-            }
+            if (!duplicate) result.add(new DetectionCandidate(candidateRect, candidate.score));
         }
 
-        // A final cleanup removes tiny boxes fully inside larger accepted boxes. This is critical
-        // for selected bottles/hearts where specular highlights or decorations can otherwise be counted.
         result = removeContainedFragments(result);
         result.sort(Comparator.comparingInt((DetectionCandidate c) -> c.rect.y).thenComparingInt(c -> c.rect.x));
         return result;
@@ -1115,8 +1018,8 @@ public class OpenCVDetectionHelper {
             double cy = mask.rows() / 2.0;
             double maxDist = Math.sqrt(cx * cx + cy * cy) + 1e-6;
             for (MatOfPoint contour : contours) {
-                double area = Geometry.contourArea(contour);
-                if (area < MIN_CONTOUR_AREA) {
+                double contourArea = Geometry.contourArea(contour);
+                if (contourArea < MIN_CONTOUR_AREA) {
                     contour.release();
                     continue;
                 }
@@ -1125,7 +1028,7 @@ public class OpenCVDetectionHelper {
                 double rcy = rect.y + rect.height / 2.0;
                 double distance = Math.sqrt(Math.pow(rcx - cx, 2) + Math.pow(rcy - cy, 2));
                 double centerWeight = 1.0 - Math.min(1.0, distance / maxDist);
-                double score = area * (1.0 + 0.40 * centerWeight);
+                double score = contourArea * (1.0 + 0.40 * centerWeight);
                 if (score > bestScore) {
                     if (best != null) best.release();
                     best = contour;
@@ -1209,7 +1112,11 @@ public class OpenCVDetectionHelper {
     }
 
     private static Rect expandRect(Rect rect, int padding, int maxWidth, int maxHeight) {
-        return clampRect(new Rect(rect.x - padding, rect.y - padding, rect.width + padding * 2, rect.height + padding * 2), maxWidth, maxHeight);
+        return clampRect(
+                new Rect(rect.x - padding, rect.y - padding, rect.width + padding * 2, rect.height + padding * 2),
+                maxWidth,
+                maxHeight
+        );
     }
 
     private static int odd(double raw) {

@@ -1,62 +1,140 @@
-# CountLens - Similar Object Detection & Counting
+# CountLens
 
-CountLens is an advanced Android application designed to detect and count similar objects in images using computer vision. It is particularly effective for counting items like bottles, pills, fruits, or icons by using a single user-defined reference.
+**Private, offline object detection and counting for Android.**
+
+[![Android CI](https://github.com/vtavakkoli/CountLens/actions/workflows/android-ci.yml/badge.svg)](https://github.com/vtavakkoli/CountLens/actions/workflows/android-ci.yml)
+
+CountLens counts objects directly on an Android device using OpenCV. It does not upload photos, require an account, or depend on a cloud API. For the most accurate result, select one example object; CountLens then finds and counts similar instances. A second adaptive mode can automatically count scenes containing many visually separate, repeated objects.
 
 <p align="center">
-  <img src="screenshots/Screenshot_1.png" width="200" alt="App Screenshot 1">
-  <img src="screenshots/Screenshot_2.png" width="200" alt="App Screenshot 2">
-  <img src="screenshots/Screenshot_3.png" width="200" alt="App Screenshot 3">
+  <img src="screenshots/Screenshot_1.png" width="220" alt="CountLens home screen">
+  <img src="screenshots/Screenshot_2.png" width="220" alt="Object selection and counting">
+  <img src="screenshots/Screenshot_3.png" width="220" alt="CountLens detection result">
 </p>
 
+## Counting modes
 
-## 🌟 Features
+### 1. Count a selected object — recommended
 
-- **Precise Object Selection**: Support for "Quadrant" (rotated rectangle) selection, allowing you to align with angled objects (like tilted bottles).
-- **Multi-Algorithm Detection**:
-    - **Color-First Segmentation**: Rapidly detects objects based on dominant hue and saturation.
-    - **Shape Matching**: Rotation and scale-tolerant contour analysis for high-contrast objects.
-    - **Rotated Template Matching**: A fallback mechanism for complex textures that respects user-defined orientation.
-- **Object-Aware NMS**: A robust Non-Maximum Suppression (NMS) system that prevents double counting by merging overlapping fragments and suppressing containment.
-- **Modern Android Support**: Fully compatible with **16 KB memory page sizes** introduced in Android 15.
-- **Interactive UI**: Zoom and pan support for large images and high-contrast results display.
+Draw a rectangle or circle around one complete object. CountLens combines several complementary methods:
 
-## 🛠️ Technology Stack
+- dominant-color and foreground segmentation;
+- contrast and shape matching;
+- dedicated ring/circle detection for dense circular objects;
+- rotation- and scale-aware template fallback;
+- object-aware non-maximum suppression for overlapping and nested detections.
 
-- **OpenCV 5.0 (Java API)**: Utilizes the latest module restructuring (using the `geometry` module for spatial analysis).
-- **Android SDK**: Targeted for API 36 (Android 15+).
-- **Kotlin & Java**: A hybrid codebase leveraging modern Android libraries.
-- **Material Design 3**: Clean and accessible user interface.
+This mode is best for bottles, pills, fruit, packages, symbols, components, pipe openings, and other repeated objects where the user can provide one example.
 
-## 🚀 Getting Started
+### 2. Auto-count repeated objects
 
-### Prerequisites
+The reference-free pipeline fuses:
 
-- Android Studio Meerkat (or newer)
-- Android NDK (r28 or higher recommended for 16 KB alignment)
-- A device or emulator running Android 8.0 (API 26) or higher.
+- automatically tuned Canny edges;
+- adaptive light/dark foreground segmentation;
+- morphological cleanup;
+- Hough-circle proposals;
+- duplicate and containment suppression;
+- robust dominant-scale filtering to reject background structures and size outliers.
 
-### Installation
+Automatic mode works best when objects are visually separated and occur at broadly similar sizes. A reference selection remains more reliable for touching objects, cluttered backgrounds, large perspective changes, or several unrelated object classes.
 
-1. Clone the repository.
-2. Open the project in Android Studio.
-3. Sync Gradle to download dependencies (OpenCV 5.0).
-4. Build and run the app on your device.
+## Highlights
 
-## 📖 How to Use
+- **100% on-device processing** — no image upload or analytics dependency.
+- **Full-resolution camera capture** — uses a secure `FileProvider`, not the camera preview thumbnail.
+- **Memory-aware image decoding** — large images are sampled and orientation-corrected before analysis.
+- **Interactive inspection** — zoom, pan, fit-to-screen, rotated selection, and numbered boxes.
+- **Modern export** — results are written to `Pictures/CountLens` using scoped `MediaStore` storage.
+- **Configurable accuracy/speed** — matching threshold, NMS overlap, selection shape, and analysis resolution.
+- **Modern Android support** — API 27+, target API 36, and 16 KB native-library packaging support.
+- **Automated validation** — unit tests, Android lint, and debug APK build run in GitHub Actions.
 
-1. **Input**: Take a photo or choose an image from your gallery.
-2. **Select**: Draw a box around **one** object you want to count.
-3. **Rotate**: Use the handle above the selection box to match the object's orientation if it is tilted.
-4. **Detect**: Tap "Detect Similar" to see the results.
-5. **Tune**: If results are fragmented or missed, use the **Settings** menu to adjust the Matching Sensitivity or NMS Overlap.
+## Technology
 
-## 🔧 Technical Notes
+| Area | Implementation |
+|---|---|
+| Computer vision | OpenCV 5 Java API |
+| Application | Android SDK, Java 11 source compatibility |
+| UI | Material Design 3, AndroidX |
+| Image input | Activity Result API, `FileProvider`, `ImageDecoder`/sampled `BitmapFactory` |
+| Persistence | SharedPreferences settings, scoped `MediaStore` export |
+| Quality | JUnit, Android lint, GitHub Actions |
 
-### 16 KB Page Compatibility
-This app uses `useLegacyPackaging = true` and `android:extractNativeLibs="true"` to ensure compatibility with 16 KB page size devices when using prebuilt OpenCV binaries.
+## Build and run
 
-### OpenCV 5.0 Migration
-The project follows the OpenCV 5.0 architectural changes, specifically importing `org.opencv.geometry.Geometry` for methods like `contourArea` and `boundingRect`.
+### Requirements
+
+- Android Studio compatible with Android Gradle Plugin 9.2+
+- JDK 17
+- Android SDK 36
+- Android device or emulator running Android 8.1 (API 27) or newer
+
+### Steps
+
+```bash
+git clone https://github.com/vtavakkoli/CountLens.git
+cd CountLens
+./gradlew assembleDebug
+```
+
+The debug APK is generated at:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+To run all local checks:
+
+```bash
+./gradlew testDebugUnitTest lintDebug assembleDebug
+```
+
+## Usage tips
+
+1. Use a sharp image with even lighting when possible.
+2. For maximum accuracy, select one complete object with a small margin around it.
+3. Use the circle tool for round objects and the rectangle tool for general shapes.
+4. Lower the matching threshold when rotated, partly hidden, or differently sized objects are missed.
+5. Increase the threshold when the result contains visually similar false positives.
+6. Use automatic mode for repeated objects on a relatively simple background; switch to selected-object mode for difficult scenes.
+
+## Architecture
+
+```text
+Camera / Gallery
+       │
+       ▼
+Sampled, orientation-aware bitmap decoding
+       │
+       ├── Selected-object pipeline
+       │     ├── reference foreground analysis
+       │     ├── color / contrast / shape candidates
+       │     ├── ring detector or template fallback
+       │     └── object-aware NMS
+       │
+       └── Automatic repeated-object pipeline
+             ├── adaptive threshold + tuned edges
+             ├── contour and circle proposals
+             ├── duplicate suppression
+             └── dominant-scale filtering
+       │
+       ▼
+Numbered detections + count + gallery export
+```
+
+## Known limitations
+
+CountLens is an offline classical-computer-vision application, not a general semantic detector. Automatic mode cannot always decide what a human considers an “object” in an arbitrary mixed scene. Strong shadows, severe overlap, transparent objects, repetitive background texture, and extreme perspective changes can reduce accuracy. The selected-object workflow is intentionally the primary mode because it gives the detector a clear target without requiring a large machine-learning model.
+
+## Privacy
+
+Photos remain on the device. The application does not request internet access and does not require broad gallery-read permission. Gallery selection uses a temporary system-granted URI, and camera capture is delegated securely to the installed camera application.
+
+## Project status
+
+CountLens is suitable for Android computer-vision teaching, experiments, and practical offline counting. Contributions should include a reproducible sample image or test case and a description of the expected count.
 
 ---
-*Developed for Android Computer Vision Teaching & Research.*
+
+Developed by **Dr. Vahid Tavakkoli** for Android computer-vision teaching and research.

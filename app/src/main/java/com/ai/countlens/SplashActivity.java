@@ -5,31 +5,43 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.opencv.android.OpenCVLoader;
 
 public class SplashActivity extends AppCompatActivity {
-
     private static final String TAG = "SplashActivity";
-    private static final int SPLASH_TIME_OUT = 3000; // 3 seconds
+    private static final long MINIMUM_SPLASH_MILLIS = 550L;
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable openMainScreen = () -> {
+        if (!isFinishing() && !isDestroyed()) {
+            startActivity(new Intent(this, MainActivity.class));
+            finish();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_splash);
 
-        if (OpenCVLoader.initLocal()) {
-            Log.i(TAG, "OpenCV loaded successfully");
-        } else {
-            Log.e(TAG, "OpenCV initialization failed!");
+        if (!OpenCVLoader.initLocal()) {
+            Log.e(TAG, "OpenCV initialization failed");
+            Toast.makeText(this, R.string.error_opencv_init, Toast.LENGTH_LONG).show();
+            finish();
+            return;
         }
 
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            Intent intent = new Intent(SplashActivity.this, MainActivity.class);
-            startActivity(intent);
-            finish();
-        }, SPLASH_TIME_OUT);
+        Log.i(TAG, "OpenCV loaded successfully");
+        handler.postDelayed(openMainScreen, MINIMUM_SPLASH_MILLIS);
+    }
+
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacks(openMainScreen);
+        super.onDestroy();
     }
 }

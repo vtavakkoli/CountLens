@@ -1,11 +1,12 @@
 package com.ai.countlens;
 
-import android.content.Intent;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.RectF;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.provider.MediaStore;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
@@ -16,10 +17,15 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class ImageDetectionActivity extends AppCompatActivity {
+    private static final String STATE_CAMERA_URI = "state_camera_uri";
 
     private ZoomableImageView ivPhoto;
     private SelectionOverlayView selectionOverlay;
@@ -29,21 +35,21 @@ public class ImageDetectionActivity extends AppCompatActivity {
     private ProgressBar progressDetection;
     private Bitmap sourceBitmap;
     private Bitmap resultBitmap;
+    private Bitmap pendingSaveBitmap;
     private SettingsManager settingsManager;
     private boolean zoomMode = false;
+    private Uri pendingCameraUri;
 
-    private final ActivityResultLauncher<Intent> cameraLauncher = registerForActivityResult(
-            new ActivityResultContracts.StartActivityForResult(),
-            result -> {
-                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                    Bundle extras = result.getData().getExtras();
-                    Bitmap capturedBitmap = extras != null ? (Bitmap) extras.get("data") : null;
-                    if (capturedBitmap != null) {
-                        setSourceBitmap(capturedBitmap);
-                    } else {
-                        Toast.makeText(this, R.string.error_no_image, Toast.LENGTH_SHORT).show();
-                    }
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private Future<?> runningTask;
+
+    private final ActivityResultLauncher<Uri> cameraLauncher = registerForActivityResult(
+            new ActivityResultContracts.TakePicture(),
+            success -> {
+                if (success && pendingCameraUri != null) {
+                    loadImage(pendingCameraUri);
                 } else {
+                    Toast.makeText(this, R.string.error_camera_cancelled, Toast.LENGTH_SHORT).show();
                     finish();
                 }
             }
@@ -53,9 +59,22 @@ public class ImageDetectionActivity extends AppCompatActivity {
             new ActivityResultContracts.GetContent(),
             uri -> {
                 if (uri != null) {
-                    loadImageFromGallery(uri);
+                    loadImage(uri);
                 } else {
                     finish();
+                }
+            }
+    );
+
+    private final ActivityResultLauncher<String> storagePermissionLauncher = registerForActivityResult(
+            new ActivityResultContracts.RequestPermission(),
+            granted -> {
+                Bitmap bitmap = pendingSaveBitmap;
+                pendingSaveBitmap = null;
+                if (granted && bitmap != null) {
+                    saveBitmapAsync(bitmap);
+                } else {
+                    Toast.makeText(this, R.string.error_storage_permission, Toast.LENGTH_LONG).show();
                 }
             }
     );
@@ -66,6 +85,12 @@ public class ImageDetectionActivity extends AppCompatActivity {
         setContentView(R.layout.activity_image_detection);
 
         settingsManager = new SettingsManager(this);
+        if (savedInstanceState != null) {
+            String cameraUri = savedInstanceState.getString(STATE_CAMERA_URI);
+            if (cameraUri != null) {
+                pendingCameraUri = Uri.parse(cameraUri);
+            }
+        }
 
         ivPhoto = findViewById(R.id.iv_photo);
         selectionOverlay = findViewById(R.id.selection_overlay);
@@ -82,15 +107,8 @@ public class ImageDetectionActivity extends AppCompatActivity {
         progressDetection = findViewById(R.id.progress_detection);
 
         selectionOverlay.setSelectionShape(settingsManager.getSelectionShape());
-        setStatusText(R.string.loading_image);
         setZoomMode(false);
-
-        boolean fromCamera = getIntent().getBooleanExtra("from_camera", false);
-        if (fromCamera) {
-            launchCamera();
-        } else {
-            launchGallery();
-        }
+        setStatusText(R.string.loading_image);
 
         btnBack.setOnClickListener(v -> finish());
         btnDetect.setOnClickListener(v -> performDetection());
@@ -99,56 +117,63 @@ public class ImageDetectionActivity extends AppCompatActivity {
         btnSave.setOnClickListener(v -> saveResult());
         btnZoomMode.setOnClickListener(v -> setZoomMode(!zoomMode));
         btnFitImage.setOnClickListener(v -> ivPhoto.resetZoom());
+
+        if (savedInstanceState == null) {
+            boolean fromCamera = getIntent().getBooleanExtra("from_camera", false);
+            if (fromCamera) {
+                launchCamera();
+            } else {
+                galleryLauncher.launch("image/*");
+            }
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (pendingCameraUri != null) {
+            outState.putString(STATE_CAMERA_URI, pendingCameraUri.toString());
+        }
     }
 
     private void launchCamera() {
-        Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        cameraLauncher.launch(takePictureIntent);
-    }
-
-    private void launchGallery() {
-        galleryLauncher.launch("image/*");
-    }
-
-    private void loadImageFromGallery(Uri uri) {
         try {
-            Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
-            setSourceBitmap(bitmap);
-        } catch (IOException e) {
-            Toast.makeText(this, "Failed to load image", Toast.LENGTH_SHORT).show();
+            pendingCameraUri = ImageIoUtils.createCameraUri(this);
+            cameraLauncher.launch(pendingCameraUri);
+        } catch (IOException error) {
+            Toast.makeText(this, R.string.error_camera_start, Toast.LENGTH_LONG).show();
             finish();
         }
     }
 
+    private void loadImage(Uri uri) {
+        setDetectingState(true);
+        setStatusText(R.string.loading_image);
+        submitTask(() -> {
+            try {
+                Bitmap bitmap = ImageIoUtils.decodeBitmap(this, uri, settingsManager.getMaxImageSize());
+                runOnUiThreadSafe(() -> setSourceBitmap(bitmap));
+            } catch (IOException | RuntimeException error) {
+                runOnUiThreadSafe(() -> {
+                    setDetectingState(false);
+                    Toast.makeText(this, R.string.error_load_image, Toast.LENGTH_LONG).show();
+                    finish();
+                });
+            }
+        });
+    }
+
     private void setSourceBitmap(Bitmap bitmap) {
-        // Large phone photos can be 3000–6000 px and make multi-scale CV very slow.
-        // CountLens now keeps an analysis-sized bitmap with the same aspect ratio.
-        // This makes detection much faster and still accurate enough for bounding boxes.
-        sourceBitmap = resizeBitmapForAnalysis(bitmap, settingsManager.getMaxImageSize());
+        sourceBitmap = bitmap;
         resultBitmap = null;
         ivPhoto.setImageBitmap(sourceBitmap);
         ivPhoto.resetZoom();
         selectionOverlay.reset();
         selectionOverlay.setVisibility(View.VISIBLE);
         tvResultCount.setVisibility(View.GONE);
-        setStatusText(R.string.status_ready);
         setZoomMode(false);
-    }
-
-    private Bitmap resizeBitmapForAnalysis(Bitmap bitmap, int maxSide) {
-        if (bitmap == null) return null;
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
-        int longest = Math.max(width, height);
-        if (longest <= maxSide) {
-            return bitmap.copy(Bitmap.Config.ARGB_8888, true);
-        }
-
-        float scale = maxSide / (float) longest;
-        int newWidth = Math.max(1, Math.round(width * scale));
-        int newHeight = Math.max(1, Math.round(height * scale));
-        Bitmap resized = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true);
-        return resized.copy(Bitmap.Config.ARGB_8888, true);
+        setStatusText(R.string.status_ready);
+        setDetectingState(false);
     }
 
     private void performDetection() {
@@ -156,7 +181,6 @@ public class ImageDetectionActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.error_no_image, Toast.LENGTH_SHORT).show();
             return;
         }
-
         if (zoomMode) {
             setZoomMode(false);
         }
@@ -167,78 +191,73 @@ public class ImageDetectionActivity extends AppCompatActivity {
             return;
         }
 
-        RectF bitmapSelection = convertToBitmapCoordinates(selection);
+        RectF bitmapSelection = ivPhoto.viewRectToBitmapRect(selection);
         if (bitmapSelection.width() <= 8 || bitmapSelection.height() <= 8) {
             Toast.makeText(this, R.string.error_select_object, Toast.LENGTH_SHORT).show();
             return;
         }
 
         setDetectingState(true);
-
-        new Thread(() -> OpenCVDetectionHelper.detectSimilarObjects(
+        setStatusText(R.string.status_detecting);
+        submitTask(() -> OpenCVDetectionHelper.detectSimilarObjects(
                 sourceBitmap,
                 bitmapSelection,
                 selectionOverlay.getRotationAngle(),
                 settingsManager.getThreshold(),
                 settingsManager.getNmsThreshold(),
-                (detectedBitmap, count) -> runOnUiThread(() -> {
-                    resultBitmap = detectedBitmap;
-                    ivPhoto.setImageBitmap(resultBitmap);
-                    // Hide the orange selection handles after detection. Otherwise users can confuse
-                    // the selected template box with real detections.
-                    selectionOverlay.setVisibility(View.GONE);
-                    tvResultCount.setText(getString(R.string.result_count_format, count));
-                    tvResultCount.setVisibility(View.VISIBLE);
-                    setStatusText(count > 0 ? R.string.status_detection_complete : R.string.error_detection_failed);
-                    setDetectingState(false);
-                })
-        )).start();
+                this::completeDetection
+        ));
     }
-
 
     private void performAutoCount() {
         if (sourceBitmap == null) {
             Toast.makeText(this, R.string.error_no_image, Toast.LENGTH_SHORT).show();
             return;
         }
-
         if (zoomMode) {
             setZoomMode(false);
         }
 
         setDetectingState(true);
-        new Thread(() -> OpenCVDetectionHelper.detectAllObjects(
+        setStatusText(R.string.status_auto_counting);
+        submitTask(() -> AdaptiveAutoCounter.countRepeatedObjects(
                 sourceBitmap,
-                (detectedBitmap, count) -> runOnUiThread(() -> {
-                    resultBitmap = detectedBitmap;
-                    ivPhoto.setImageBitmap(resultBitmap);
-                    selectionOverlay.setVisibility(View.GONE);
-                    tvResultCount.setText(getString(R.string.result_count_format, count));
-                    tvResultCount.setVisibility(View.VISIBLE);
-                    setStatusText(count > 0 ? R.string.status_detection_complete : R.string.error_detection_failed);
-                    setDetectingState(false);
-                })
-        )).start();
+                settingsManager.getThreshold(),
+                this::completeDetection
+        ));
+    }
+
+    private void completeDetection(Bitmap detectedBitmap, int count) {
+        if (Thread.currentThread().isInterrupted()) {
+            if (detectedBitmap != sourceBitmap && !detectedBitmap.isRecycled()) {
+                detectedBitmap.recycle();
+            }
+            return;
+        }
+        runOnUiThreadSafe(() -> {
+            resultBitmap = detectedBitmap;
+            ivPhoto.setImageBitmap(resultBitmap);
+            ivPhoto.resetZoom();
+            selectionOverlay.setVisibility(View.GONE);
+            tvResultCount.setText(getString(R.string.result_count_format, count));
+            tvResultCount.setVisibility(View.VISIBLE);
+            setStatusText(count > 0
+                    ? R.string.status_detection_complete
+                    : R.string.error_detection_failed);
+            setDetectingState(false);
+        });
     }
 
     private void setDetectingState(boolean detecting) {
         progressDetection.setVisibility(detecting ? View.VISIBLE : View.GONE);
-
-        // Keep the buttons visually readable. Material disabled colors were too pale on
-        // some phones, so we explicitly control alpha and re-enable every control when
-        // detection is finished.
         setButtonState(btnDetect, !detecting);
         setButtonState(btnAutoCount, !detecting);
         setButtonState(btnReset, !detecting);
         setButtonState(btnSave, !detecting);
         setButtonState(btnZoomMode, !detecting);
         setButtonState(btnFitImage, !detecting);
-
         selectionOverlay.setEnabled(!detecting && !zoomMode);
         ivPhoto.setZoomEnabled(!detecting && zoomMode);
-        if (detecting) {
-            setStatusText(R.string.status_detecting_fast);
-        }
     }
 
     private void setButtonState(Button button, boolean enabled) {
@@ -259,44 +278,90 @@ public class ImageDetectionActivity extends AppCompatActivity {
         selectionOverlay.setEnabled(!enabled);
         selectionOverlay.setVisibility(enabled ? View.GONE : View.VISIBLE);
         btnZoomMode.setText(enabled ? R.string.btn_select_mode : R.string.btn_zoom_mode);
-        setStatusText(enabled ? R.string.status_zoom_mode : R.string.status_select_object);
-    }
-
-    private RectF convertToBitmapCoordinates(RectF viewRect) {
-        return ivPhoto.viewRectToBitmapRect(viewRect);
+        if (sourceBitmap != null) {
+            setStatusText(enabled ? R.string.status_zoom_mode : R.string.status_select_object);
+        }
     }
 
     private void resetSelection() {
+        cancelRunningTask();
         selectionOverlay.reset();
         selectionOverlay.setVisibility(View.VISIBLE);
-        ivPhoto.resetZoom();
         if (sourceBitmap != null) {
             ivPhoto.setImageBitmap(sourceBitmap);
+            ivPhoto.resetZoom();
         }
         resultBitmap = null;
         tvResultCount.setVisibility(View.GONE);
-        setStatusText(R.string.status_select_object);
         setZoomMode(false);
+        setStatusText(R.string.status_select_object);
+        setDetectingState(false);
     }
 
     private void saveResult() {
         Bitmap bitmapToSave = resultBitmap != null ? resultBitmap : sourceBitmap;
         if (bitmapToSave == null) {
-            Toast.makeText(this, "No image to save", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.error_no_image_to_save, Toast.LENGTH_SHORT).show();
             return;
         }
 
-        String savedImageURL = MediaStore.Images.Media.insertImage(
-                getContentResolver(),
-                bitmapToSave,
-                "CountLens_" + System.currentTimeMillis(),
-                "Detection Result from CountLens"
-        );
-
-        if (savedImageURL != null) {
-            Toast.makeText(this, "Image saved to gallery", Toast.LENGTH_SHORT).show();
-        } else {
-            Toast.makeText(this, "Failed to save image", Toast.LENGTH_SHORT).show();
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            pendingSaveBitmap = bitmapToSave;
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            return;
         }
+        saveBitmapAsync(bitmapToSave);
+    }
+
+    private void saveBitmapAsync(Bitmap bitmap) {
+        setDetectingState(true);
+        setStatusText(R.string.status_saving);
+        submitTask(() -> {
+            try {
+                ImageIoUtils.saveToGallery(this, bitmap);
+                runOnUiThreadSafe(() -> {
+                    setDetectingState(false);
+                    setStatusText(resultBitmap != null
+                            ? R.string.status_detection_complete
+                            : R.string.status_ready);
+                    Toast.makeText(this, R.string.message_image_saved, Toast.LENGTH_LONG).show();
+                });
+            } catch (IOException | RuntimeException error) {
+                runOnUiThreadSafe(() -> {
+                    setDetectingState(false);
+                    setStatusText(R.string.error_save_image);
+                    Toast.makeText(this, R.string.error_save_image, Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
+    private void submitTask(Runnable task) {
+        cancelRunningTask();
+        runningTask = worker.submit(task);
+    }
+
+    private void cancelRunningTask() {
+        if (runningTask != null && !runningTask.isDone()) {
+            runningTask.cancel(true);
+        }
+        runningTask = null;
+    }
+
+    private void runOnUiThreadSafe(Runnable action) {
+        runOnUiThread(() -> {
+            if (!isFinishing() && !isDestroyed()) {
+                action.run();
+            }
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        cancelRunningTask();
+        worker.shutdownNow();
+        super.onDestroy();
     }
 }
